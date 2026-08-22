@@ -26,4 +26,5 @@ src-wails/frontend/dist/*
 *.sln
 *.sw?
 
-docs/
+docs/*
+!docs/screenshot.png
