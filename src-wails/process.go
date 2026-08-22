@@ -328,7 +328,6 @@ func (p *Portal) Delete(id string) error {
 	if _, ok := inner.runtime[id]; ok {
 		return errString("実行中のアプリは削除できません。先に終了してください。")
 	}
-	disarm(id)
 	before := len(inner.file.Apps)
 	next := inner.file.Apps[:0]
 	for _, app := range inner.file.Apps {
@@ -382,7 +381,6 @@ func (p *Portal) start(id string, pinned bool) (AppView, error) {
 	p.setStarting(id, true)
 	defer p.setStarting(id, false)
 
-	disarm(id)
 	if knownPort != 0 {
 		_ = waitFree(knownPort, 5*time.Second)
 	}
@@ -408,13 +406,11 @@ func (p *Portal) start(id string, pinned bool) (AppView, error) {
 	entry, err := findEntry(inner, id)
 	if err != nil {
 		p.unlock()
-		p.RefreshWake(id)
 		return AppView{}, err
 	}
 	port, err := resolvePort(entry)
 	if err != nil {
 		p.unlock()
-		p.RefreshWake(id)
 		return AppView{}, err
 	}
 	exclude := []uint16{port}
@@ -427,7 +423,6 @@ func (p *Portal) start(id string, pinned bool) (AppView, error) {
 		backendPort, resolveErr := resolveListenPort(mode, spec.Port, exclude...)
 		if resolveErr != nil {
 			p.unlock()
-			p.RefreshWake(id)
 			return AppView{}, errString(backendLabel(i, spec.Name) + "の" + resolveErr.Error())
 		}
 		backendPorts[i] = backendPort
@@ -453,7 +448,6 @@ func (p *Portal) start(id string, pinned bool) (AppView, error) {
 	}
 	if err := saveConfig(inner.configPath, inner.file); err != nil {
 		p.unlock()
-		p.RefreshWake(id)
 		return AppView{}, err
 	}
 	delete(inner.errors, id)
@@ -489,7 +483,6 @@ func (p *Portal) start(id string, pinned bool) (AppView, error) {
 		)
 		if spawnErr != nil {
 			stopStarted()
-			p.RefreshWake(id)
 			return AppView{}, errString(backendLabel(i, spec.Name) + "を起動できませんでした: " + spawnErr.Error())
 		}
 		p.spawnLogReader(id, backendLogStream(i, spec.Name, false), bout)
@@ -504,7 +497,6 @@ func (p *Portal) start(id string, pinned bool) (AppView, error) {
 		if !processAlive(backendRt.pid()) {
 			terminateRuntime(backendRt)
 			stopStarted()
-			p.RefreshWake(id)
 			return AppView{}, errString(backendLabel(i, spec.Name) + "が起動直後に終了しました")
 		}
 		backendRts = append(backendRts, backendRt)
@@ -519,7 +511,6 @@ func (p *Portal) start(id string, pinned bool) (AppView, error) {
 	)
 	if err != nil {
 		stopStarted()
-		p.RefreshWake(id)
 		return AppView{}, err
 	}
 	p.spawnLogReader(id, "stdout", stdout)
@@ -530,7 +521,6 @@ func (p *Portal) start(id string, pinned bool) (AppView, error) {
 		p.unlock()
 		terminateRuntime(&Runtime{cmd: cmd, pgid: pgid, keepalive: keepalive, waitCh: make(chan struct{})})
 		stopStarted()
-		p.RefreshWake(id)
 		return AppView{}, errString("アプリはすでに起動しています")
 	}
 	runningBackends := make([]RunningBackend, 0, len(backendRts))
@@ -577,36 +567,6 @@ func (p *Portal) start(id string, pinned bool) (AppView, error) {
 	}
 	go p.watchReady(id, port)
 	return view, nil
-}
-
-func (p *Portal) StartAndForward(id string, clients []net.Conn) {
-	view, err := p.start(id, false)
-	if err != nil {
-		for _, client := range clients {
-			respondUnavailable(client, err.Error())
-		}
-		inner := p.lock()
-		inner.errors[id] = err.Error()
-		p.unlock()
-		p.RefreshWake(id)
-		return
-	}
-	p.emitStatus(view)
-	if view.Port == nil {
-		for _, client := range clients {
-			respondUnavailable(client, "ポートが割り当てられていません")
-		}
-		return
-	}
-	port := *view.Port
-	for _, client := range clients {
-		c := client
-		p.beginProxy(id)
-		go func() {
-			defer p.endProxy(id)
-			_ = spliceToPort(c, port, readyWait)
-		}()
-	}
 }
 
 func (p *Portal) SetPinned(id string, pinned bool) (AppView, error) {
@@ -711,7 +671,7 @@ func (p *Portal) Stop(id string) (AppView, error) {
 	inner = p.lock()
 	delete(inner.errors, id)
 	p.unlock()
-	p.RefreshWake(id)
+	p.emitView(id)
 	inner = p.lock()
 	entry, err := findEntry(inner, id)
 	view := viewFor(inner, entry)
@@ -789,7 +749,7 @@ func (p *Portal) handleChildExit(id string) {
 	for _, backend := range backends {
 		terminateRuntime(backend)
 	}
-	p.RefreshWake(id)
+	p.emitView(id)
 }
 
 func (p *Portal) handleCompanionExit(id string, companion *Runtime, label string) {
@@ -822,7 +782,7 @@ func (p *Portal) handleCompanionExit(id string, companion *Runtime, label string
 	}
 	p.unlock()
 	terminateRuntime(rt)
-	p.RefreshWake(id)
+	p.emitView(id)
 }
 
 func processExitMessage(label string, rt *Runtime) string {
@@ -1015,20 +975,6 @@ func spawnCommandWithPorts(folder, command string, ports portInject, envVars []E
 	return cmd, keepalive, pgid, stdout, stderr, nil
 }
 
-func pidOrZero(rt *Runtime) uint32 {
-	if rt == nil {
-		return 0
-	}
-	return rt.pid()
-}
-
-func pgidOrZero(rt *Runtime) int {
-	if rt == nil {
-		return 0
-	}
-	return rt.pgid
-}
-
 func closeKeepalive(f *os.File) {
 	if f != nil {
 		_ = f.Close()
@@ -1189,8 +1135,7 @@ func (p *Portal) spawnLogReader(id, stream string, reader io.ReadCloser) {
 	}()
 }
 
-func (p *Portal) RefreshWake(id string) {
-	disarm(id)
+func (p *Portal) emitView(id string) {
 	if p.isStarting(id) {
 		return
 	}
@@ -1224,10 +1169,6 @@ func (p *Portal) isStarting(id string) bool {
 	defer p.startingMu.Unlock()
 	_, ok := p.starting[id]
 	return ok
-}
-
-func (p *Portal) ArmAllWake() {
-	disarmAll()
 }
 
 func findEntry(inner *Inner, id string) (AppEntry, error) {

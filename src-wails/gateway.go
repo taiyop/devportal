@@ -13,7 +13,10 @@ import (
 	"time"
 )
 
-const defaultGatewayPort uint16 = 80
+const (
+	defaultGatewayPort uint16 = 80
+	readyWait                 = 20 * time.Second
+)
 
 var fallbackGatewayPorts = []uint16{80, 7341, 8080, 8888, 18080}
 

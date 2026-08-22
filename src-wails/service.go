@@ -31,7 +31,6 @@ func NewPortalService(app *application.App, portal *Portal) *PortalService {
 }
 
 func (s *PortalService) ServiceStartup(_ context.Context, _ application.ServiceOptions) error {
-	s.portal.ArmAllWake()
 	s.portal.startIdleWatcher()
 	pollCtx, cancel := context.WithCancel(context.Background())
 	s.stopPoll = cancel
@@ -71,7 +70,6 @@ func (s *PortalService) ServiceShutdown() error {
 		s.stopPoll()
 		s.stopPoll = nil
 	}
-	disarmAll()
 	s.portal.StopAll()
 	return nil
 }
@@ -110,7 +108,7 @@ func (s *PortalService) UpsertApp(input AppInput) (AppView, error) {
 	if err != nil {
 		return AppView{}, err
 	}
-	s.portal.RefreshWake(entry.ID)
+	s.portal.emitView(entry.ID)
 	inner := s.portal.lock()
 	found, findErr := findEntry(inner, entry.ID)
 	view := viewFor(inner, found)

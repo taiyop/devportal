@@ -37,7 +37,6 @@ func (p *Portal) shutdownAll(w io.Writer) {
 		shutdownLog(w, "リバースプロキシ %s を停止します。", gw.Addr)
 	}
 	p.StopGateway()
-	disarmAll()
 
 	items := p.takeRunning()
 	if len(items) == 0 {

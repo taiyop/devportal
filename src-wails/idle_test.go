@@ -66,9 +66,9 @@ func TestSetPinnedUpdatesView(t *testing.T) {
 	}
 }
 
-func TestIdleStopDoesNotArmPortSentry(t *testing.T) {
+func TestIdleStopRemovesRuntime(t *testing.T) {
 	if isWindows() {
-		t.Skip("wake re-arm is unix-oriented")
+		t.Skip("idle stop is unix-oriented")
 	}
 	port, err := findFreePort()
 	if err != nil {
@@ -112,10 +112,6 @@ func TestIdleStopDoesNotArmPortSentry(t *testing.T) {
 	p.inner.runtime[id] = rt
 	go func() { _ = rt.wait() }()
 	p.reapIdle()
-	t.Cleanup(func() { disarm(id) })
-	if _, ok := armedPort(id); ok {
-		t.Fatal("port sentry should not re-arm after idle stop")
-	}
 	if _, running := p.inner.runtime[id]; running {
 		t.Fatal("runtime should be gone")
 	}

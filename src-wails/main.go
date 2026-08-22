@@ -66,7 +66,6 @@ func main() {
 	})
 
 	app.OnShutdown(func() {
-		disarmAll()
 		portal.StopAll()
 	})
 
