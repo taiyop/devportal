@@ -22,7 +22,6 @@ dev_mode:
       - node_modules
       - frontend
       - bin
-      - ../src-tauri
       - ../node_modules
       - ../dist
     file:

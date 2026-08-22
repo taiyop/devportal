@@ -21,7 +21,7 @@ export default defineConfig({
       ? false
       : true,
     watch: {
-      ignored: ["**/src-tauri/**", "**/src-wails/**"],
+      ignored: ["**/src-wails/**"],
     },
   },
 });
