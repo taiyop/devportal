@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/appicon-32.png" />
+    <link rel="icon" type="image/png" sizes="180x180" href="/appicon.png" />
+    <link rel="apple-touch-icon" href="/appicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DevPortal</title>
+    <script>
+      (() => {
+        const theme =
+          localStorage.getItem("devportal.theme") === "dark" ? "dark" : "light";
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.classList.toggle("dark", theme === "dark");
+        document.documentElement.style.colorScheme = theme;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
