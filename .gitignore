@@ -13,7 +13,8 @@ dist-ssr
 *.local
 src-wails/bin
 src-wails/.task
-src-wails/frontend/dist
+src-wails/frontend/dist/*
+!src-wails/frontend/dist/.gitkeep
 
 # Editor directories and files
 .vscode/*

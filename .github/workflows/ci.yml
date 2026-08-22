@@ -20,6 +20,9 @@ jobs:
           go-version: '1.25'
           cache-dependency-path: src-wails/go.sum
 
+      - name: Ensure frontend dist placeholder exists
+        run: mkdir -p src-wails/frontend/dist && touch src-wails/frontend/dist/.gitkeep
+
       - name: Run Go tests
         working-directory: src-wails
         run: go test -v ./...
