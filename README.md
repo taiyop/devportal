@@ -12,6 +12,10 @@
   <img src="https://img.shields.io/badge/platform-macOS-lightgrey.svg" alt="Platform">
 </p>
 
+<p align="center">
+  <img src="docs/screenshot.png" alt="DevPortal のメイン画面。Storybook や社内Wiki などのローカルアプリをカードで一覧し、起動・停止とリバースプロキシを操作できる。" width="920" />
+</p>
+
 ---
 
 ## 概要
