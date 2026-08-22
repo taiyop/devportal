@@ -1,9 +1,8 @@
 package main
 
 import (
-	"fmt"
+	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +10,32 @@ import (
 
 	"github.com/google/uuid"
 )
+
+func TestMain(m *testing.M) {
+	if os.Getenv("DEVPORTAL_TEST_LISTEN") != "" {
+		os.Exit(listenAndBlockForTest())
+	}
+	os.Exit(m.Run())
+}
+
+func listenAndBlockForTest() int {
+	port := os.Getenv("PORT")
+	if port == "" {
+		return 2
+	}
+	ln, err := net.Listen("tcp", net.JoinHostPort(loopbackV4, port))
+	if err != nil {
+		return 3
+	}
+	defer ln.Close()
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return 0
+		}
+		_ = conn.Close()
+	}
+}
 
 func TestCommandWithEnv(t *testing.T) {
 	wrapped := commandWithEnv("npm run dev", 5173, []EnvVar{{Name: "HOST", Value: "127.0.0.1"}})
@@ -182,18 +207,22 @@ func TestTerminateRuntimeReleasesListeningPort(t *testing.T) {
 	if isWindows() {
 		t.Skip("port release is unix-oriented")
 	}
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 not available")
+	helper, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
 	}
 	port, err := findFreePort()
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Re-exec this test binary as the child. python3 -m http.server calls
+	// socket.getfqdn() on bind, which hangs for a minute-plus on GitHub
+	// Actions macOS 15+ runners, so the 3s ready wait always times out.
 	cmd, keepalive, pgid, stdout, stderr, err := spawnCommand(
 		os.TempDir(),
-		fmt.Sprintf("python3 -m http.server %d --bind 127.0.0.1", port),
+		shSingleQuote(helper),
 		port,
-		nil,
+		[]EnvVar{{Name: "DEVPORTAL_TEST_LISTEN", Value: "1"}},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -204,9 +233,15 @@ func TestTerminateRuntimeReleasesListeningPort(t *testing.T) {
 	go func() { _ = rt.wait() }()
 	deadline := time.Now().Add(3 * time.Second)
 	for !isOpen(port) {
+		select {
+		case <-rt.waitCh:
+			terminateRuntime(rt)
+			t.Fatal("child exited before listening")
+		default:
+		}
 		if time.Now().After(deadline) {
 			terminateRuntime(rt)
-			t.Fatal("http.server did not listen")
+			t.Fatal("child listener did not listen")
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
