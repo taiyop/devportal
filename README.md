@@ -45,6 +45,8 @@ flowchart TD
   - 空いているポートを自動採番し、環境変数（`PORT` や `API_PORT`）経由でプロセスへ自動注入。
 - 🎨 **GUI 管理 & YAML 保存**
   - アプリの登録・編集・ログ閲覧・ファビコン表示をすべて直感的な GUI で行え、設定はシンプルな YAML に保存されます。
+- ⬆️ **アプリ内アップデート**
+  - GitHub Releases を確認し、新しいバージョンがあればダッシュボードとメニューから更新を案内します。
 
 ---
 
@@ -115,6 +117,18 @@ bun run wails:dmg
 > ```bash
 > xattr -cr /Applications/DevPortal.app
 > ```
+
+### アプリ内アップデート用のリリース資産
+
+Wails の updater は `.dmg` を直接入れ替えません。GitHub Releases には、実行中の OS / アーキテクチャがファイル名に含まれる **`.zip`**（macOS は `.app` ごと）と、その SHA-256 を書いた `SHA256SUMS` を添付してください。
+
+```bash
+bun run wails:update-asset
+# src-wails/bin/DevPortal-darwin-<arch>.zip
+# src-wails/bin/SHA256SUMS
+```
+
+タグは `v0.1.0` のように、ビルドの `currentVersion`（先頭の `v` なし）と対応させます。更新確認は起動から数秒後と、以降 6 時間ごと、メニューの「アップデートを確認…」、設定の同じボタンから行えます。GitHub API のレート制限を上げたい場合は `DEVPORTAL_GITHUB_TOKEN` か `GITHUB_TOKEN` を渡してください。
 
 ---
 

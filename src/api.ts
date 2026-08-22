@@ -96,6 +96,22 @@ export async function openConfigPath(): Promise<void> {
   await PortalService.OpenConfigPath();
 }
 
+export async function appVersion(): Promise<string> {
+  return PortalService.AppVersion();
+}
+
+export function checkForUpdates(): void {
+  void PortalService.CheckForUpdates();
+}
+
+export function skipUpdate(version: string): void {
+  void PortalService.SkipUpdate(version);
+}
+
+export async function restartToUpdate(): Promise<void> {
+  await PortalService.RestartToUpdate();
+}
+
 export function onAppStatus(handler: (app: AppView) => void): () => void {
   try {
     return Events.On("app-status", (event: { data: BoundAppView }) =>

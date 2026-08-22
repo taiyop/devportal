@@ -24,6 +24,7 @@
     "build:wails": "cd src-wails && wails3 build",
     "wails:package": "cd src-wails && wails3 package",
     "wails:dmg": "cd src-wails && wails3 task darwin:package:dmg",
+    "wails:update-asset": "cd src-wails && wails3 task darwin:package:updater",
     "tauri": "tauri"
   },
   "dependencies": {

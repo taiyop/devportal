@@ -11,8 +11,9 @@ import (
 )
 
 type PortalService struct {
-	app    *application.App
-	portal *Portal
+	app      *application.App
+	portal   *Portal
+	stopPoll context.CancelFunc
 }
 
 func NewPortalService(app *application.App, portal *Portal) *PortalService {
@@ -32,6 +33,9 @@ func NewPortalService(app *application.App, portal *Portal) *PortalService {
 func (s *PortalService) ServiceStartup(_ context.Context, _ application.ServiceOptions) error {
 	s.portal.ArmAllWake()
 	s.portal.startIdleWatcher()
+	pollCtx, cancel := context.WithCancel(context.Background())
+	s.stopPoll = cancel
+	go pollForUpdates(pollCtx, s.app)
 	return nil
 }
 
@@ -63,9 +67,35 @@ func (s *PortalService) SetPinned(id string, pinned bool) (AppView, error) {
 }
 
 func (s *PortalService) ServiceShutdown() error {
+	if s.stopPoll != nil {
+		s.stopPoll()
+		s.stopPoll = nil
+	}
 	disarmAll()
 	s.portal.StopAll()
 	return nil
+}
+
+func (s *PortalService) AppVersion() string {
+	return runningVersion()
+}
+
+func (s *PortalService) CheckForUpdates() {
+	go runCheckAndInstall(s.app)
+}
+
+func (s *PortalService) SkipUpdate(version string) {
+	if s.app == nil || s.app.Updater == nil {
+		return
+	}
+	s.app.Updater.SkipVersion(version)
+}
+
+func (s *PortalService) RestartToUpdate() error {
+	if s.app == nil || s.app.Updater == nil {
+		return fmt.Errorf("updater が初期化されていません")
+	}
+	return s.app.Updater.Restart(context.Background())
 }
 
 func (s *PortalService) ListApps() ([]AppView, error) {

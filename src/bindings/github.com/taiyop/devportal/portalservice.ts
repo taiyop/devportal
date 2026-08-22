@@ -9,6 +9,14 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+export function AppVersion(): $CancellablePromise<string> {
+    return $Call.ByID(3695732262);
+}
+
+export function CheckForUpdates(): $CancellablePromise<void> {
+    return $Call.ByID(1608483778);
+}
+
 export function DeleteApp(id: string): $CancellablePromise<void> {
     return $Call.ByID(1334454351, id);
 }
@@ -41,12 +49,20 @@ export function PickFolder(): $CancellablePromise<string> {
     return $Call.ByID(1305646314);
 }
 
+export function RestartToUpdate(): $CancellablePromise<void> {
+    return $Call.ByID(2920253082);
+}
+
 export function SetGatewayPort(port: number): $CancellablePromise<$models.GatewayStatus> {
     return $Call.ByID(930655546, port);
 }
 
 export function SetPinned(id: string, pinned: boolean): $CancellablePromise<$models.AppView> {
     return $Call.ByID(1478943487, id, pinned);
+}
+
+export function SkipUpdate(version: string): $CancellablePromise<void> {
+    return $Call.ByID(3154503477, version);
 }
 
 export function StartApp(id: string): $CancellablePromise<$models.AppView> {

@@ -2,6 +2,7 @@ version: '3'
 
 vars:
   APP_NAME: "DevPortal"
+  APP_VERSION: "0.1.0"
   BIN_DIR: "bin"
   PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "bun"}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
@@ -29,6 +30,12 @@ tasks:
     platforms: [darwin]
     cmds:
       - task: darwin:package:dmg
+
+  package:updater:
+    summary: Packages a GitHub Releases zip of the .app plus SHA256SUMS
+    platforms: [darwin]
+    cmds:
+      - task: darwin:package:updater
 
   run:
     summary: Runs the application

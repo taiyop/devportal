@@ -43,6 +43,7 @@ import { GatewayBar } from "@/components/gateway-bar";
 import { LogsDialog } from "@/components/logs-dialog";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { UpdateBanner } from "@/components/update-banner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,6 +56,7 @@ import { asError } from "@/lib/error";
 import { hostnameFieldError } from "@/lib/hostname";
 import { navigate, useAppRoute } from "@/lib/route";
 import { isOff, matchesFilter, type BoardFilter } from "@/lib/status";
+import { promptVisible, useAppUpdater } from "@/lib/updater";
 import { persistTheme, readTheme, type Theme } from "./theme";
 import {
   AppInput,
@@ -96,7 +98,9 @@ export default function App() {
   const [gatewayBusy, setGatewayBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingGatewayPort, setSavingGatewayPort] = useState(false);
+  const updater = useAppUpdater(preview);
   const formSeed = useRef<string | null>(null);
+  const updateWaiting = promptVisible(updater);
 
   useEffect(() => {
     persistTheme(theme);
@@ -604,12 +608,16 @@ export default function App() {
               type="button"
               variant="ghost"
               size="icon-xs"
+              className="relative"
               aria-label="設定"
               aria-haspopup="dialog"
               aria-expanded={settingsOpen}
               onClick={() => setSettingsOpen(true)}
             >
               <Settings />
+              {updateWaiting ? (
+                <span className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-primary ring-2 ring-[var(--sidebar)]" />
+              ) : null}
             </Button>
           </div>
         </>
@@ -622,6 +630,7 @@ export default function App() {
             gatewayPort={gateway.preferredPort || 80}
             gatewayRunning={gateway.running}
             savingPort={savingGatewayPort}
+            updater={updater}
             onOpenChange={setSettingsOpen}
             onRevealConfig={() => void revealConfig()}
             onSaveGatewayPort={(port) => void saveGatewayPort(port)}
@@ -711,6 +720,8 @@ export default function App() {
                 <AlertDescription>{bootError}</AlertDescription>
               </Alert>
             )}
+
+            {updateWaiting ? <UpdateBanner updater={updater} /> : null}
 
             {!ready ? (
               <div className="mx-auto flex max-w-3xl flex-col gap-2">

@@ -43,7 +43,7 @@ tasks:
     cmds:
       - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.BUILD_FLAGS}} -o "{{.OUTPUT}}"'
     vars:
-      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if or .EXTRA_TAGS (eq .OBFUSCATED "true")}}-tags {{if eq .OBFUSCATED "true"}}wails_obfuscated{{if .EXTRA_TAGS}},{{end}}{{end}}{{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s"{{end}}'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if or .EXTRA_TAGS (eq .OBFUSCATED "true")}}-tags {{if eq .OBFUSCATED "true"}}wails_obfuscated{{if .EXTRA_TAGS}},{{end}}{{end}}{{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s -X main.currentVersion={{.APP_VERSION}}"{{end}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
     env:
@@ -133,6 +133,24 @@ tasks:
       - task: package
     cmds:
       - task: create:dmg
+
+  package:updater:
+    summary: Zips the .app bundle plus SHA256SUMS for GitHub Releases
+    platforms: [darwin]
+    deps:
+      - task: package
+    cmds:
+      - |
+        set -euo pipefail
+        ARCH="${GOARCH:-$(go env GOARCH)}"
+        ZIP="{{.BIN_DIR}}/{{.APP_NAME}}-darwin-${ARCH}.zip"
+        rm -f "$ZIP"
+        ditto -c -k --keepParent "{{.BIN_DIR}}/{{.APP_NAME}}.app" "$ZIP"
+        (
+          cd "{{.BIN_DIR}}"
+          shasum -a 256 "$(basename "$ZIP")" > SHA256SUMS
+        )
+        echo "Wrote $ZIP and {{.BIN_DIR}}/SHA256SUMS"
 
   create:dmg:
     summary: Creates a configurable `.dmg` from the `.app` bundle

@@ -37,6 +37,11 @@ func main() {
 		},
 	})
 
+	if err := configureUpdater(app); err != nil {
+		log.Fatal(err)
+	}
+	installApplicationMenu(app)
+
 	service := NewPortalService(app, portal)
 	app.RegisterService(application.NewService(service))
 	installGuard(portal, portal.inner.runningPath)

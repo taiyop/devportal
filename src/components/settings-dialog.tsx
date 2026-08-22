@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { FolderOpen } from "lucide-react";
+import { ArrowDownToLine, FolderOpen, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import type { AppUpdater } from "@/lib/updater";
 
 export function SettingsDialog({
   open,
@@ -24,6 +25,7 @@ export function SettingsDialog({
   gatewayPort,
   gatewayRunning,
   savingPort,
+  updater,
   onOpenChange,
   onRevealConfig,
   onSaveGatewayPort,
@@ -33,6 +35,7 @@ export function SettingsDialog({
   gatewayPort: number;
   gatewayRunning: boolean;
   savingPort: boolean;
+  updater: AppUpdater;
   onOpenChange: (open: boolean) => void;
   onRevealConfig: () => void;
   onSaveGatewayPort: (port: number) => void;
@@ -66,7 +69,7 @@ export function SettingsDialog({
             設定
           </DialogTitle>
           <DialogDescription className="text-[12px]">
-            リバースプロキシのポートと、設定ファイルの場所です。
+            リバースプロキシ、アップデート、設定ファイルの場所です。
           </DialogDescription>
         </DialogHeader>
 
@@ -113,6 +116,48 @@ export function SettingsDialog({
           </section>
 
           <section className="flex flex-col gap-2">
+            <h2 className="px-1 text-[13px] font-semibold">このアプリ</h2>
+            <FieldGroup className="surface settings-group gap-0 p-0">
+              <Field className="gap-1.5 px-4 py-3">
+                <FieldLabel>バージョン</FieldLabel>
+                <p className="font-mono text-[13px] tabular-nums">
+                  {updater.version ? `v${updater.version}` : "—"}
+                </p>
+                <FieldDescription>{updateCopy(updater)}</FieldDescription>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {updater.stage === "ready" ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={updater.busy}
+                      onClick={() => void updater.restart()}
+                    >
+                      {updater.busy ? <Spinner /> : <RotateCw data-icon="inline-start" />}
+                      再起動して適用
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant={updater.stage === "available" ? "default" : "outline"}
+                      size="sm"
+                      className="w-fit"
+                      disabled={updater.busy || updater.stage === "downloading" || updater.stage === "verifying" || updater.stage === "installing"}
+                      onClick={updater.check}
+                    >
+                      {updater.busy || updater.stage === "checking" ? (
+                        <Spinner />
+                      ) : (
+                        <ArrowDownToLine data-icon="inline-start" />
+                      )}
+                      アップデートを確認
+                    </Button>
+                  )}
+                </div>
+              </Field>
+            </FieldGroup>
+          </section>
+
+          <section className="flex flex-col gap-2">
             <h2 className="px-1 text-[13px] font-semibold">設定ファイル</h2>
             <FieldGroup className="surface settings-group gap-0 p-0">
               <Field className="gap-1.5 px-4 py-3">
@@ -141,6 +186,30 @@ export function SettingsDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function updateCopy(updater: AppUpdater): string {
+  switch (updater.stage) {
+    case "checking":
+      return "GitHub Releases を確認しています。";
+    case "available":
+      return updater.release?.version
+        ? `v${updater.release.version} が利用できます。`
+        : "新しいバージョンが利用できます。";
+    case "downloading":
+      return "新しいバージョンをダウンロードしています。";
+    case "verifying":
+    case "installing":
+      return "ダウンロードを検証して、適用の準備をしています。";
+    case "ready":
+      return "再起動すると新しいバージョンに切り替わります。";
+    case "up-to-date":
+      return "最新のバージョンです。";
+    case "error":
+      return updater.error || "確認できませんでした。";
+    default:
+      return "GitHub Releases から、アプリ内で更新できます。";
+  }
 }
 
 function parseGatewayPort(raw: string): { port: number; error: string | null } {
