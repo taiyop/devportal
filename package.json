@@ -1,0 +1,56 @@
+{
+  "name": "devportal",
+  "version": "0.1.0",
+  "description": "Local development service launcher and reverse proxy with auto-wake",
+  "author": "taiyop",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/taiyop/devportal.git"
+  },
+  "bugs": {
+    "url": "https://github.com/taiyop/devportal/issues"
+  },
+  "homepage": "https://github.com/taiyop/devportal#readme",
+  "type": "module",
+  "scripts": {
+    "dev": "node ./scripts/ensure-esbuild.mjs && vite",
+    "build": "node ./scripts/ensure-esbuild.mjs && tsc && vite build",
+    "build:dev": "node ./scripts/ensure-esbuild.mjs && vite build --minify false --mode development",
+    "preview": "vite preview",
+    "wails": "cd src-wails && wails3",
+    "wails:dev": "cd src-wails && wails3 dev",
+    "wails:build": "cd src-wails && wails3 build",
+    "build:wails": "cd src-wails && wails3 build",
+    "wails:package": "cd src-wails && wails3 package",
+    "wails:dmg": "cd src-wails && wails3 task darwin:package:dmg",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.7.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "@wailsio/runtime": "latest",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.33.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "shadcn": "^4.18.0",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.3",
+    "tw-animate-css": "^1.4.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4"
+  }
+}
