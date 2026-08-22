@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/signal"
@@ -60,7 +61,7 @@ func loadRunning(path string) RunningFile {
 	if err != nil {
 		return RunningFile{}
 	}
-	if len(bytesTrimSpace(raw)) == 0 {
+	if len(bytes.TrimSpace(raw)) == 0 {
 		return RunningFile{}
 	}
 	var file RunningFile

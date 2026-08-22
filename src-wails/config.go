@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,7 +51,7 @@ func loadConfig(path string) (ConfigFile, error) {
 	if err != nil {
 		return ConfigFile{}, fmt.Errorf("設定ファイルを読めませんでした: %w", err)
 	}
-	if len(bytesTrimSpace(raw)) == 0 {
+	if len(bytes.TrimSpace(raw)) == 0 {
 		return ConfigFile{Apps: []AppEntry{}}, nil
 	}
 	var file ConfigFile
@@ -78,15 +79,4 @@ func saveConfig(path string, file ConfigFile) error {
 		return fmt.Errorf("設定ファイルを保存できませんでした: %w", err)
 	}
 	return nil
-}
-
-func bytesTrimSpace(b []byte) []byte {
-	start, end := 0, len(b)
-	for start < end && (b[start] == ' ' || b[start] == '\n' || b[start] == '\t' || b[start] == '\r') {
-		start++
-	}
-	for end > start && (b[end-1] == ' ' || b[end-1] == '\n' || b[end-1] == '\t' || b[end-1] == '\r') {
-		end--
-	}
-	return b[start:end]
 }
