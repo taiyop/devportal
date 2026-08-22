@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=DevPortal
+Comment=Local launch board for everyday dev tools
+Exec=/usr/local/bin/devportal %u
+Terminal=false
+Type=Application
+Icon=devportal
+Categories=Utility;
+StartupWMClass=devportal
