@@ -3,7 +3,10 @@ package main
 import (
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -507,5 +510,179 @@ func TestStartAndStopTwoBackendProcesses(t *testing.T) {
 			t.Fatal("all processes should be gone after stop")
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestShellCommandUnixUsesSh(t *testing.T) {
+	if isWindows() {
+		cmd := shellCommand("npm run dev")
+		if !slices.Equal(cmd.Args, []string{"cmd", "/C", "npm run dev"}) {
+			t.Fatalf("windows args %v", cmd.Args)
+		}
+		return
+	}
+	cmd := shellCommand("npm run dev")
+	if !slices.Equal(cmd.Args, []string{"/bin/sh", "-c", "npm run dev"}) {
+		t.Fatalf("args %v", cmd.Args)
+	}
+}
+
+func TestOverlayEnvReplacesPath(t *testing.T) {
+	got := overlayEnv([]string{"PATH=/bin", "HOME=/tmp", "FOO=1"}, []string{"PATH=/opt/node/bin:/bin", "BAR=2"})
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "PATH=/opt/node/bin:/bin") {
+		t.Fatalf("PATH not replaced: %q", got)
+	}
+	if strings.Contains(joined, "PATH=/bin\n") || strings.HasSuffix(joined, "PATH=/bin") {
+		t.Fatalf("old PATH remains: %q", got)
+	}
+	if !strings.Contains(joined, "HOME=/tmp") || !strings.Contains(joined, "BAR=2") {
+		t.Fatalf("lost vars: %q", got)
+	}
+}
+
+func TestParseExportedEnvSkipsShellNoise(t *testing.T) {
+	got := parseExportedEnv([]byte("PATH=/opt/bin\nPWD=/tmp\n_\nSHLVL=2\nNODENV_ROOT=/opt/nodenv\n"))
+	joined := strings.Join(got, ",")
+	if joined != "PATH=/opt/bin,NODENV_ROOT=/opt/nodenv" {
+		t.Fatalf("parsed %q", got)
+	}
+}
+
+func TestLoginInteractiveArgs(t *testing.T) {
+	if !slices.Equal(loginInteractiveArgs("/bin/zsh"), []string{"-lic"}) {
+		t.Fatalf("zsh args %v", loginInteractiveArgs("/bin/zsh"))
+	}
+	if !slices.Equal(loginInteractiveArgs("/opt/homebrew/bin/fish"), []string{"-l", "-i", "-c"}) {
+		t.Fatalf("fish args %v", loginInteractiveArgs("/opt/homebrew/bin/fish"))
+	}
+}
+
+func TestUserShellFallsBackWhenUnset(t *testing.T) {
+	if isWindows() {
+		t.Skip("unix shells only")
+	}
+	t.Setenv("SHELL", "")
+	got := userShell()
+	if runtime.GOOS == "darwin" {
+		if got != "/bin/zsh" {
+			t.Fatalf("darwin fallback %q", got)
+		}
+		return
+	}
+	if got != "/bin/sh" {
+		t.Fatalf("fallback %q", got)
+	}
+}
+
+func TestSpawnRunsThroughLoginInteractiveShell(t *testing.T) {
+	if isWindows() {
+		t.Skip("unix shells only")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(dir, "marker.txt")
+	tool := filepath.Join(bin, "devportal-login-tool")
+	if err := os.WriteFile(tool, []byte("#!/bin/sh\nprintf 'LOGIN_SHELL_OK' > "+shSingleQuote(marker)+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shell := filepath.Join(dir, "loginshell")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" != \"-lic\" ]; then echo unexpected-args >&2; exit 90; fi\n" +
+		"export PATH=" + shSingleQuote(bin) + ":\"$PATH\"\n" +
+		"eval \"$2\"\n"
+	if err := os.WriteFile(shell, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SHELL", shell)
+	t.Setenv("PATH", "/usr/bin:/bin")
+
+	cmd, keepalive, pgid, stdout, stderr, err := spawnCommand(dir, "devportal-login-tool", 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdout.Close()
+	defer stderr.Close()
+	rt := &Runtime{cmd: cmd, pgid: pgid, keepalive: keepalive, waitCh: make(chan struct{})}
+	go func() { _ = rt.wait() }()
+	select {
+	case <-rt.waitCh:
+	case <-time.After(3 * time.Second):
+		terminateRuntime(rt)
+		t.Fatal("login shell child should exit")
+	}
+	body, readErr := os.ReadFile(marker)
+	if readErr != nil {
+		t.Fatalf("login shell did not run tool: %v", readErr)
+	}
+	if string(body) != "LOGIN_SHELL_OK" {
+		t.Fatalf("marker %q", body)
+	}
+}
+
+func TestSpawnFindsNpmWithMinimalPath(t *testing.T) {
+	if isWindows() {
+		t.Skip("unix shells only")
+	}
+	if _, err := os.Stat("/bin/zsh"); err != nil {
+		t.Skip("zsh is required")
+	}
+	probe := exec.Command("/bin/zsh", "-lic", "command -v npm")
+	probe.Env = []string{
+		"HOME=" + os.Getenv("HOME"),
+		"USER=" + os.Getenv("USER"),
+		"LOGNAME=" + os.Getenv("LOGNAME"),
+		"SHELL=/bin/zsh",
+		"PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+		"TERM=dumb",
+	}
+	out, err := probe.Output()
+	if err != nil || strings.TrimSpace(string(out)) == "" {
+		t.Skip("login zsh does not provide npm")
+	}
+
+	t.Setenv("SHELL", "/bin/zsh")
+	t.Setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+	dir := t.TempDir()
+	env, fromLogin := loginShellEnviron(dir)
+	if !fromLogin {
+		t.Fatal("expected login shell environment")
+	}
+	pathVal := ""
+	for _, kv := range env {
+		if name, value, ok := strings.Cut(kv, "="); ok && name == "PATH" {
+			pathVal = value
+			break
+		}
+	}
+	if !strings.Contains(pathVal, "npm") && !strings.Contains(pathVal, "nodenv") && !strings.Contains(pathVal, "nvm") {
+		t.Fatalf("login PATH missing node shims: %q", pathVal)
+	}
+	marker := filepath.Join(dir, "npm-path.txt")
+	cmd, keepalive, pgid, stdout, stderr, err := spawnCommand(dir, "which npm > "+shSingleQuote(marker), 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdout.Close()
+	defer stderr.Close()
+	rt := &Runtime{cmd: cmd, pgid: pgid, keepalive: keepalive, waitCh: make(chan struct{})}
+	go func() { _ = rt.wait() }()
+	select {
+	case <-rt.waitCh:
+	case <-time.After(5 * time.Second):
+		terminateRuntime(rt)
+		t.Fatal("which npm should exit")
+	}
+	terminateRuntime(rt)
+	body, readErr := os.ReadFile(marker)
+	if readErr != nil {
+		t.Fatalf("which npm did not write: %v", readErr)
+	}
+	path := strings.TrimSpace(string(body))
+	if path == "" || !strings.Contains(path, "npm") {
+		t.Fatalf("expected npm on PATH, got %q", path)
 	}
 }

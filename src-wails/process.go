@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -936,13 +938,16 @@ func spawnCommandWithPorts(folder, command string, ports portInject, envVars []E
 	wrapped = withParentWatchdog(wrapped)
 	cmd := shellCommand(wrapped)
 	cmd.Dir = folder
-	cmd.Env = appendLoopbackEnv(os.Environ(), envVars)
+	baseEnv, fromLogin := loginShellEnviron(folder)
+	cmd.Env = appendLoopbackEnv(baseEnv, envVars)
 	pmap := ports.portMap()
 	for _, v := range envVars {
 		cmd.Env = append(cmd.Env, v.Name+"="+injectPortMap(v.Value, pmap))
 	}
 	cmd.Env = append(cmd.Env, portEnvAssignments(ports)...)
-	enrichPath(cmd)
+	if !fromLogin {
+		enrichPath(cmd)
+	}
 	isolateProcessGroup(cmd)
 	stdinR, keepalive, err := attachKeepalive(cmd)
 	if err != nil {
@@ -1059,11 +1064,123 @@ func shSingleQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
+// GUI apps do not source .zshrc/.bashrc, so version managers like nodenv are
+// missing from PATH. We load the user's login+interactive shell once per spawn
+// to copy that environment, then still run the command under /bin/sh so the
+// POSIX parent-watchdog (background job + exec) is not subject to zsh job control.
+const loginShellDump = "command -v printenv >/dev/null 2>&1 && printenv || env"
+
 func shellCommand(command string) *exec.Cmd {
 	if isWindows() {
 		return exec.Command("cmd", "/C", command)
 	}
 	return exec.Command("/bin/sh", "-c", command)
+}
+
+func loginShellEnviron(dir string) ([]string, bool) {
+	if isWindows() {
+		return os.Environ(), false
+	}
+	captured, err := captureLoginShellEnv(dir)
+	if err != nil || len(captured) == 0 {
+		return os.Environ(), false
+	}
+	return overlayEnv(os.Environ(), captured), true
+}
+
+func captureLoginShellEnv(dir string) ([]string, error) {
+	shell := userShell()
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, shell, append(loginInteractiveArgs(shell), loginShellDump)...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	cmd.Env = append(os.Environ(), "TERM=dumb")
+	cmd.Stdin = nil
+	cmd.Stderr = io.Discard
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	parsed := parseExportedEnv(out)
+	if len(parsed) == 0 {
+		return nil, errString("login shell produced no environment")
+	}
+	return parsed, nil
+}
+
+func parseExportedEnv(out []byte) []string {
+	lines := strings.Split(string(out), "\n")
+	env := make([]string, 0, len(lines))
+	for _, line := range lines {
+		name, _, ok := strings.Cut(line, "=")
+		if !ok || name == "" {
+			continue
+		}
+		switch name {
+		case "_", "PWD", "OLDPWD", "SHLVL", "SHELL_SESSION_ID":
+			continue
+		}
+		env = append(env, line)
+	}
+	return env
+}
+
+func overlayEnv(base, overlay []string) []string {
+	index := make(map[string]int, len(base)+len(overlay))
+	out := make([]string, 0, len(base)+len(overlay))
+	for _, kv := range base {
+		name, _, _ := strings.Cut(kv, "=")
+		if name == "" {
+			continue
+		}
+		if i, ok := index[name]; ok {
+			out[i] = kv
+			continue
+		}
+		index[name] = len(out)
+		out = append(out, kv)
+	}
+	for _, kv := range overlay {
+		name, _, _ := strings.Cut(kv, "=")
+		if name == "" {
+			continue
+		}
+		if i, ok := index[name]; ok {
+			out[i] = kv
+			continue
+		}
+		index[name] = len(out)
+		out = append(out, kv)
+	}
+	return out
+}
+
+func userShell() string {
+	if s := strings.TrimSpace(os.Getenv("SHELL")); s != "" {
+		return s
+	}
+	if runtime.GOOS == "darwin" {
+		if info, err := os.Stat("/bin/zsh"); err == nil && !info.IsDir() {
+			return "/bin/zsh"
+		}
+	}
+	return "/bin/sh"
+}
+
+func loginInteractiveArgs(shell string) []string {
+	switch shellBaseName(shell) {
+	case "fish":
+		return []string{"-l", "-i", "-c"}
+	default:
+		return []string{"-lic"}
+	}
+}
+
+func shellBaseName(shell string) string {
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(shell)))
+	return strings.TrimSuffix(base, ".exe")
 }
 
 func isWindows() bool {

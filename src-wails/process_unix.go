@@ -13,7 +13,7 @@ import (
 )
 
 func withParentWatchdog(command string) string {
-	return "exec 3<&0; exec < /dev/null; WATCH_PID=$$; (cat <&3 >/dev/null 2>/dev/null; kill -TERM -- -$WATCH_PID 2>/dev/null; sleep 1; kill -KILL -- -$WATCH_PID 2>/dev/null) & exec " + command
+	return "set +m 2>/dev/null || :; exec 3<&0; exec < /dev/null; WATCH_PID=$$; (cat <&3 >/dev/null 2>/dev/null; /bin/kill -TERM -- -$WATCH_PID 2>/dev/null; sleep 1; /bin/kill -KILL -- -$WATCH_PID 2>/dev/null) & exec " + command
 }
 
 func isolateProcessGroup(cmd *exec.Cmd) {
