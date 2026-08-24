@@ -2,6 +2,7 @@ version: '3'
 
 vars:
   APP_NAME: "DevPortal"
+  # Untagged/dev default. Release CI passes the git tag (leading "v" stripped).
   APP_VERSION: "0.1.0"
   BIN_DIR: "bin"
   PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "bun"}}'

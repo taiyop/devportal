@@ -57,6 +57,51 @@ func TestRunningVersionStripsPrefix(t *testing.T) {
 	}
 }
 
+func TestNormalizeAppVersion(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"0.1.2", "0.1.2"},
+		{"v0.1.2", "0.1.2"},
+		{"V0.1.2", "0.1.2"},
+		{"  v0.1.2  ", "0.1.2"},
+		{"v", "0.1.0"},
+		{"", "0.1.0"},
+		{"  ", "0.1.0"},
+	}
+	for _, c := range cases {
+		if got := normalizeAppVersion(c.in); got != c.want {
+			t.Errorf("normalizeAppVersion(%q)=%q want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestUpdateInProgress(t *testing.T) {
+	busy := []updater.State{
+		updater.StateChecking,
+		updater.StateDownloading,
+		updater.StateVerifying,
+		updater.StateInstalling,
+		updater.StateReady,
+	}
+	for _, state := range busy {
+		if !updateInProgress(state) {
+			t.Errorf("updateInProgress(%s) = false, want true", state)
+		}
+	}
+	idle := []updater.State{
+		updater.StateIdle,
+		updater.StateAvailable,
+		updater.StateUpToDate,
+		updater.StateError,
+	}
+	for _, state := range idle {
+		if updateInProgress(state) {
+			t.Errorf("updateInProgress(%s) = true, want false", state)
+		}
+	}
+}
+
 func TestFirstNonEmpty(t *testing.T) {
 	if got := firstNonEmpty("", "  ", "token"); got != "token" {
 		t.Fatalf("got %q", got)

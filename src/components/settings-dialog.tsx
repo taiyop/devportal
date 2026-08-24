@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import type { AppUpdater } from "@/lib/updater";
+import { formatVersionLabel, type AppUpdater } from "@/lib/updater";
 
 export function SettingsDialog({
   open,
@@ -121,7 +121,7 @@ export function SettingsDialog({
               <Field className="gap-1.5 px-4 py-3">
                 <FieldLabel>バージョン</FieldLabel>
                 <p className="font-mono text-[13px] tabular-nums">
-                  {updater.version ? `v${updater.version}` : "—"}
+                  {formatVersionLabel(updater.version) || "—"}
                 </p>
                 <FieldDescription>{updateCopy(updater)}</FieldDescription>
                 <div className="mt-1 flex flex-wrap gap-1.5">
@@ -194,7 +194,7 @@ function updateCopy(updater: AppUpdater): string {
       return "GitHub Releases を確認しています。";
     case "available":
       return updater.release?.version
-        ? `v${updater.release.version} が利用できます。`
+        ? `${formatVersionLabel(updater.release.version)} が利用できます。`
         : "新しいバージョンが利用できます。";
     case "downloading":
       return "新しいバージョンをダウンロードしています。";

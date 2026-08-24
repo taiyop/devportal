@@ -186,6 +186,22 @@ tasks:
         fi
       - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/MacOS"
       - cp build/darwin/Info.plist "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents"
+      - |
+        python3 - "{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Info.plist" "{{.APP_VERSION}}" <<'PY'
+        import pathlib, re, sys
+        path = pathlib.Path(sys.argv[1])
+        version = sys.argv[2]
+        text = path.read_text()
+        def stamp(key: str, s: str) -> str:
+            pattern = rf"(<key>{re.escape(key)}</key>\s*<string>)[^<]*"
+            new, n = re.subn(pattern, rf"\g<1>{version}", s, count=1)
+            if n != 1:
+                raise SystemExit(f"failed to stamp {key}")
+            return new
+        text = stamp("CFBundleVersion", text)
+        text = stamp("CFBundleShortVersionString", text)
+        path.write_text(text)
+        PY
       - task: '{{if eq OS "darwin"}}codesign:adhoc{{else}}codesign:skip{{end}}'
       - cmd: |
           set -euo pipefail

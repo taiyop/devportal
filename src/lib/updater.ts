@@ -68,7 +68,8 @@ export function useAppUpdater(preview: boolean): AppUpdater {
     let cancelled = false;
     void appVersion()
       .then((next) => {
-        if (!cancelled && next) setVersion(next);
+        const normalized = normalizeVersion(next);
+        if (!cancelled && normalized) setVersion(normalized);
       })
       .catch(() => {});
 
@@ -126,7 +127,7 @@ export function useAppUpdater(preview: boolean): AppUpdater {
       }),
       listen(Updater.Events.Meta, (event) => {
         const meta = asMeta(event.data);
-        if (meta.currentVersion) setVersion(meta.currentVersion);
+        if (meta.currentVersion) setVersion(normalizeVersion(meta.currentVersion));
       }),
     ];
 
@@ -217,7 +218,7 @@ function asRelease(data: unknown): UpdateRelease | null {
     notes?: string;
     artifact?: { filename?: string; size?: number };
   };
-  const version = String(raw.version ?? "").trim();
+  const version = normalizeVersion(String(raw.version ?? ""));
   if (!version) return null;
   return {
     version,
@@ -247,7 +248,17 @@ function asErrorInfo(data: unknown): string {
 function asMeta(data: unknown): { currentVersion: string } {
   if (!data || typeof data !== "object") return { currentVersion: "" };
   const raw = data as { currentVersion?: string };
-  return { currentVersion: String(raw.currentVersion ?? "").trim() };
+  return { currentVersion: normalizeVersion(String(raw.currentVersion ?? "")) };
+}
+
+export function normalizeVersion(version: string): string {
+  const trimmed = version.trim();
+  return trimmed.replace(/^[vV]/, "").trim();
+}
+
+export function formatVersionLabel(version: string): string {
+  const normalized = normalizeVersion(version);
+  return normalized ? `v${normalized}` : "";
 }
 
 export function formatBytes(bytes: number): string {

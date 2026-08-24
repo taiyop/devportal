@@ -14,7 +14,7 @@ import (
 )
 
 // currentVersion is the running build (no "v" prefix).
-// Release builds override it with:
+// Release CI overrides it from the git tag:
 //
 //	-ldflags "-X main.currentVersion=1.2.3"
 var currentVersion = "0.1.0"
@@ -110,29 +110,28 @@ func runCheckAndInstall(app *application.App) {
 	}
 }
 
-func promptIfUpdateAvailable(ctx context.Context, app *application.App) {
+func checkForUpdatesSilently(ctx context.Context, app *application.App) {
 	if app == nil || app.Updater == nil {
 		return
 	}
-	switch app.Updater.State() {
-	case updater.StateChecking, updater.StateDownloading, updater.StateVerifying, updater.StateInstalling, updater.StateReady:
+	if updateInProgress(app.Updater.State()) {
 		return
 	}
 
 	checkCtx, cancel := context.WithTimeout(ctx, updateCheckTimeout)
-	rel, err := app.Updater.Check(checkCtx)
-	cancel()
-	if err != nil {
+	defer cancel()
+	if _, err := app.Updater.Check(checkCtx); err != nil {
 		logUpdate(app, "silent update check failed", err)
-		return
 	}
-	if rel == nil {
-		return
+}
+
+func updateInProgress(state updater.State) bool {
+	switch state {
+	case updater.StateChecking, updater.StateDownloading, updater.StateVerifying, updater.StateInstalling, updater.StateReady:
+		return true
+	default:
+		return false
 	}
-	if ctx.Err() != nil {
-		return
-	}
-	runCheckAndInstall(app)
 }
 
 func pollForUpdates(ctx context.Context, app *application.App) {
@@ -143,7 +142,7 @@ func pollForUpdates(ctx context.Context, app *application.App) {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
-			promptIfUpdateAvailable(ctx, app)
+			checkForUpdatesSilently(ctx, app)
 			timer.Reset(updateCheckInterval)
 		}
 	}
@@ -158,7 +157,14 @@ func logUpdate(app *application.App, msg string, err error) {
 }
 
 func runningVersion() string {
-	version := strings.TrimPrefix(strings.TrimSpace(currentVersion), "v")
+	return normalizeAppVersion(currentVersion)
+}
+
+func normalizeAppVersion(version string) string {
+	version = strings.TrimSpace(version)
+	if strings.HasPrefix(version, "v") || strings.HasPrefix(version, "V") {
+		version = strings.TrimSpace(version[1:])
+	}
 	if version == "" {
 		return "0.1.0"
 	}

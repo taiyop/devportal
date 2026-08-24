@@ -132,7 +132,7 @@ bun run wails:update-asset
 # src-wails/bin/SHA256SUMS
 ```
 
-タグは `v0.1.0` のように、ビルドの `currentVersion`（先頭の `v` なし）と対応させます。更新確認は起動から数秒後と、以降 6 時間ごと、メニューの「アップデートを確認…」、設定の同じボタンから行えます。GitHub API のレート制限を上げたい場合は `DEVPORTAL_GITHUB_TOKEN` か `GITHUB_TOKEN` を渡してください。
+タグは `0.1.0` のように先頭の `v` なしで付けます（`v0.1.0` でもリリース時に `v` は落とします）。GitHub Actions の Release workflow がタグをビルドの `currentVersion` と `Info.plist` に埋め込みます。更新確認は起動から数秒後と、以降 6 時間ごとに行い、新しいバージョンがあればダッシュボードのバナーで案内します。メニューの「アップデートを確認…」と設定の同じボタンからは、確認してインストールを開始できます。GitHub API のレート制限を上げたい場合は `DEVPORTAL_GITHUB_TOKEN` か `GITHUB_TOKEN` を渡してください。
 
 ---
 

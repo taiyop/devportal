@@ -4,6 +4,7 @@ import { Spinner } from "@/components/ui/spinner";
 import {
   formatBytes,
   formatRate,
+  formatVersionLabel,
   type AppUpdater,
 } from "@/lib/updater";
 
@@ -13,7 +14,7 @@ export function UpdateBanner({
   updater: AppUpdater;
 }) {
   const release = updater.release;
-  const versionLabel = release?.version ? `v${release.version}` : "新しいバージョン";
+  const versionLabel = formatVersionLabel(release?.version ?? "") || "新しいバージョン";
   const size = release?.size ? formatBytes(release.size) : "";
   const progress = progressPercent(updater);
 

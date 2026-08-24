@@ -34,11 +34,35 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
+      - name: Resolve app version from tag
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          VERSION="${VERSION#V}"
+          if [ -z "$VERSION" ]; then
+            echo "empty version from tag: ${TAG}" >&2
+            exit 1
+          fi
+          echo "tag=${TAG}"
+          echo "APP_VERSION=${VERSION}"
+          echo "APP_VERSION=${VERSION}" >> "$GITHUB_ENV"
+
       - name: Build macOS DMG and Updater Package
         run: |
           cd src-wails
-          wails3 task darwin:package:dmg
-          wails3 task darwin:package:updater
+          echo "Building with APP_VERSION=${APP_VERSION}"
+          wails3 task darwin:package:dmg APP_VERSION="${APP_VERSION}"
+          wails3 task darwin:package:updater APP_VERSION="${APP_VERSION}"
+
+      - name: Verify baked-in app version
+        run: |
+          PLIST="src-wails/bin/DevPortal.app/Contents/Info.plist"
+          GOT="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")"
+          if [ "$GOT" != "$APP_VERSION" ]; then
+            echo "Info.plist version is ${GOT}, want ${APP_VERSION}" >&2
+            exit 1
+          fi
+          echo "Info.plist CFBundleShortVersionString=${GOT}"
 
       - name: Create GitHub Release and Upload Assets
         uses: softprops/action-gh-release@v2
