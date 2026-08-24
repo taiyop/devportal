@@ -48,11 +48,14 @@ var (
 	guardPortal  atomic.Pointer[Portal]
 	guardRunPath atomic.Pointer[string]
 	signalsOnce  sync.Once
+	// forceExit is SIGKILL on Unix. libc exit/_exit deadlock inside AppKit.
+	forceExit = rawExit
 )
 
 func installGuard(portal *Portal, runningFile string) {
 	guardPortal.Store(portal)
 	guardRunPath.Store(&runningFile)
+	startForceKiller()
 	installSignals()
 }
 
@@ -163,14 +166,14 @@ func installSignals() {
 			go func() {
 				<-ch
 				fmt.Fprintln(os.Stderr, "2回目の信号です。強制終了します。")
-				os.Exit(1)
+				forceExit(1)
 			}()
 			if portal := guardPortal.Load(); portal != nil {
 				portal.ShutdownFromSignal()
 			} else {
 				emergencyStop()
 			}
-			os.Exit(0)
+			forceExit(0)
 		}()
 	})
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,5 +46,11 @@ func TestRefusesToKillSelfOrInit(t *testing.T) {
 	}
 	if !isDangerous(999, selfPID) {
 		t.Fatal("self pid should be dangerous")
+	}
+}
+
+func TestForceExitDefaultsToRawExit(t *testing.T) {
+	if fmt.Sprintf("%p", forceExit) != fmt.Sprintf("%p", rawExit) {
+		t.Fatal("forceExit should be rawExit, not libc exit/os.Exit")
 	}
 }
