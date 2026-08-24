@@ -640,7 +640,8 @@ func TestSpawnFindsNpmWithMinimalPath(t *testing.T) {
 		"TERM=dumb",
 	}
 	out, err := probe.Output()
-	if err != nil || strings.TrimSpace(string(out)) == "" {
+	npmPath := strings.TrimSpace(string(out))
+	if err != nil || npmPath == "" {
 		t.Skip("login zsh does not provide npm")
 	}
 
@@ -658,8 +659,11 @@ func TestSpawnFindsNpmWithMinimalPath(t *testing.T) {
 			break
 		}
 	}
-	if !strings.Contains(pathVal, "npm") && !strings.Contains(pathVal, "nodenv") && !strings.Contains(pathVal, "nvm") {
-		t.Fatalf("login PATH missing node shims: %q", pathVal)
+	// Homebrew (CI) puts npm at /opt/homebrew/bin/npm, so PATH does not contain
+	// the substrings "npm"/"nvm"/"nodenv". Check that the probe's npm dir is on PATH.
+	npmDir := filepath.Dir(npmPath)
+	if !pathListContainsDir(pathVal, npmDir) {
+		t.Fatalf("login PATH %q does not include npm at %q", pathVal, npmPath)
 	}
 	marker := filepath.Join(dir, "npm-path.txt")
 	cmd, keepalive, pgid, stdout, stderr, err := spawnCommand(dir, "which npm > "+shSingleQuote(marker), 1, nil)
@@ -685,4 +689,14 @@ func TestSpawnFindsNpmWithMinimalPath(t *testing.T) {
 	if path == "" || !strings.Contains(path, "npm") {
 		t.Fatalf("expected npm on PATH, got %q", path)
 	}
+}
+
+func pathListContainsDir(pathVal, dir string) bool {
+	dir = filepath.Clean(dir)
+	for _, part := range filepath.SplitList(pathVal) {
+		if filepath.Clean(part) == dir {
+			return true
+		}
+	}
+	return false
 }
