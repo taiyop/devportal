@@ -88,15 +88,28 @@ func spawnForceKiller(watchPid int, tty string, extras []int) (*forceKiller, err
 pidfile=$2
 shift 2
 export DP_TTY
+export DP_PIDFILE="$pidfile"
+rm -f "$pidfile" "$pidfile.tmp"
 # Start the helper and exit so launchd reparents it. If the helper stayed
 # a child of DevPortal, wails3's Ctrl+C cleanup would SIGKILL it with the
 # app and leave bun/wails3 holding the tty.
+#
+# Do not publish $! here: perl/sh still have the default SIGUSR1 action
+# until the helper installs its trap. Callers that trip immediately would
+# kill the helper before it can reap extras.
 if command -v perl >/dev/null 2>&1; then
   perl -e 'setpgrp; exec { $ARGV[0] } @ARGV' /bin/sh "$script" "$@" </dev/null >/dev/null 2>&1 &
 else
   /bin/sh "$script" "$@" </dev/null >/dev/null 2>&1 &
 fi
-echo $! > "$pidfile"`,
+n=0
+while [ ! -s "$pidfile" ]; do
+  n=$((n+1))
+  if [ "$n" -gt 100 ]; then
+    exit 1
+  fi
+  /bin/sleep 0.02
+done`,
 		"launcher",
 		scriptFile,
 		pidFile,
@@ -138,6 +151,11 @@ trap '' HUP TSTP TTIN TTOU
 got=0
 trap 'got=1' USR1 INT TERM
 self=$$
+# Publish pid only after USR1 is caught. The launcher waits on this file.
+if [ -n "${DP_PIDFILE:-}" ]; then
+  echo "$self" > "${DP_PIDFILE}.tmp"
+  mv "${DP_PIDFILE}.tmp" "$DP_PIDFILE"
+fi
 watch=$1
 shift
 tty=${DP_TTY:-}

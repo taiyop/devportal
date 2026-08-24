@@ -236,7 +236,8 @@ func TestForceKillerKillsExtrasWhenHelperIsChildOfWatch(t *testing.T) {
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
-			t.Fatalf("%s pid %d still alive; helper suicided before extras", name, cmd.Process.Pid)
+			helperAlive := processAlive(uint32(helperPid))
+			t.Fatalf("%s pid %d still alive after SIGUSR1 (helper pid=%d alive=%v)", name, cmd.Process.Pid, helperPid, helperAlive)
 		}
 	}
 	waitDone(watch, "watch")
