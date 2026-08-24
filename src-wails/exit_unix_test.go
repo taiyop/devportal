@@ -5,6 +5,9 @@ package main
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -133,6 +136,113 @@ func TestForceKillerLeavesTargetUntilTrip(t *testing.T) {
 	}
 }
 
+func TestForceKillerDetachesFromCaller(t *testing.T) {
+	cmd := exec.Command("/bin/sleep", "30")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }()
+
+	killer, err := newForceKiller(cmd.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = syscall.Kill(killer.helperPid, syscall.SIGKILL) }()
+	ppid := parentPid(killer.helperPid)
+	if ppid == os.Getpid() {
+		t.Fatalf("helper ppid=%d is still the caller; wails3 would reap it with DevPortal", ppid)
+	}
+	if !processAlive(uint32(killer.helperPid)) {
+		t.Fatal("helper died after detach")
+	}
+}
+
+func TestForceKillerKillsExtrasWhenHelperIsChildOfWatch(t *testing.T) {
+	if os.Getenv("DEVPORTAL_BE_WATCH") == "1" {
+		extra, err := strconv.Atoi(os.Getenv("DEVPORTAL_EXTRA_PID"))
+		if err != nil || extra <= 1 {
+			os.Exit(1)
+		}
+		k, err := newForceKiller(os.Getpid(), extra)
+		if err != nil {
+			os.Exit(1)
+		}
+		status := strconv.Itoa(k.helperPid) + " " + strconv.Itoa(parentPid(k.helperPid))
+		if err := os.WriteFile(os.Getenv("DEVPORTAL_HELPER_PID_FILE"), []byte(status+"\n"), 0o600); err != nil {
+			os.Exit(1)
+		}
+		time.Sleep(30 * time.Second)
+		os.Exit(0)
+	}
+
+	startSleep := func() *exec.Cmd {
+		cmd := exec.Command("/bin/sleep", "30")
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		return cmd
+	}
+	extra := startSleep()
+	defer func() { _ = syscall.Kill(-extra.Process.Pid, syscall.SIGKILL) }()
+
+	pidFile := filepath.Join(t.TempDir(), "helper.pid")
+	watch := exec.Command(os.Args[0], "-test.run=^TestForceKillerKillsExtrasWhenHelperIsChildOfWatch$", "-test.count=1")
+	watch.Env = append(os.Environ(),
+		"DEVPORTAL_BE_WATCH=1",
+		"DEVPORTAL_EXTRA_PID="+strconv.Itoa(extra.Process.Pid),
+		"DEVPORTAL_HELPER_PID_FILE="+pidFile,
+	)
+	watch.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := watch.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = syscall.Kill(-watch.Process.Pid, syscall.SIGKILL) }()
+
+	var helperPid, helperPpid int
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		raw, err := os.ReadFile(pidFile)
+		if err == nil {
+			fields := strings.Fields(string(raw))
+			if len(fields) >= 2 {
+				n, err1 := strconv.Atoi(fields[0])
+				p, err2 := strconv.Atoi(fields[1])
+				if err1 == nil && err2 == nil && n > 1 {
+					helperPid = n
+					helperPpid = p
+					break
+				}
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if helperPid <= 1 {
+		t.Fatal("watch process did not report helper pid")
+	}
+	if helperPpid == watch.Process.Pid {
+		t.Fatalf("helper ppid=%d is still the watch process; Ctrl+C would reap it", helperPpid)
+	}
+
+	if err := syscall.Kill(helperPid, syscall.SIGUSR1); err != nil {
+		t.Fatal(err)
+	}
+
+	waitDone := func(cmd *exec.Cmd, name string) {
+		t.Helper()
+		done := make(chan error, 1)
+		go func() { done <- cmd.Wait() }()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s pid %d still alive; helper suicided before extras", name, cmd.Process.Pid)
+		}
+	}
+	waitDone(watch, "watch")
+	waitDone(extra, "extra")
+}
+
 func TestForceKillerIgnoresInitPid(t *testing.T) {
 	if _, err := newForceKiller(1); err == nil {
 		t.Fatal("expected error for init target")
@@ -172,5 +282,49 @@ func TestSessionKillTargetsSkipsSelf(t *testing.T) {
 		if pid == self || pid <= 1 {
 			t.Fatalf("unexpected target %d", pid)
 		}
+	}
+}
+
+func TestShouldKillSessionSelectsWailsTty(t *testing.T) {
+	if !shouldKillSession("bun run wails:dev") {
+		t.Fatal("bun run wails:dev should be killed")
+	}
+	if !shouldKillSession("wails3 dev") {
+		t.Fatal("wails3 should be killed")
+	}
+	if shouldKillSession("/bin/zsh") {
+		t.Fatal("zsh must not be killed")
+	}
+	if shouldKillSession("-/bin/zsh") {
+		t.Fatal("login zsh must not be killed")
+	}
+	if shouldKillSession("/usr/bin/login -flp taiyop") {
+		t.Fatal("login must not be killed")
+	}
+	if shouldKillSession("grok") {
+		t.Fatal("unrelated command must not be killed")
+	}
+}
+
+func TestTtySessionTargetsSkipsSelfAndShells(t *testing.T) {
+	self := os.Getpid()
+	for _, pid := range ttySessionTargets(self) {
+		if pid == self || pid <= 1 {
+			t.Fatalf("unexpected pid %d", pid)
+		}
+		cmd := procCommand(pid)
+		if isStopAncestor(cmd) {
+			t.Fatalf("shell pid %d %q", pid, cmd)
+		}
+		if !shouldKillSession(cmd) {
+			t.Fatalf("non-session pid %d %q", pid, cmd)
+		}
+	}
+}
+
+func TestUniquePidsDropsInitAndDupes(t *testing.T) {
+	got := uniquePids([]int{0, 1, 8, 8, 9, 1})
+	if len(got) != 2 || got[0] != 8 || got[1] != 9 {
+		t.Fatalf("got %v", got)
 	}
 }
