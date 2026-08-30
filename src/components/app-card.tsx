@@ -1,4 +1,5 @@
-import { ExternalLink, Info, Pencil, Play, Square } from "lucide-react";
+import { Copy, ExternalLink, Info, Pencil, Play, Square } from "lucide-react";
+import { toast } from "sonner";
 import { KeepAliveControls } from "@/components/keep-alive-controls";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -7,6 +8,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { copyText } from "@/lib/clipboard";
 import { isOff } from "@/lib/status";
 import type { AppView } from "@/types";
 import { AppFavicon } from "@/components/app-favicon";
@@ -33,6 +35,14 @@ export function AppCard({
 }) {
   const off = isOff(app.status);
 
+  async function copyUrl() {
+    if (!app.url) return;
+    const ok = await copyText(app.url);
+    toast[ok ? "success" : "error"](
+      ok ? "URL をコピーしました" : "コピーできませんでした",
+    );
+  }
+
   return (
     <article
       className="surface relative flex w-full items-start gap-3 rounded-[14px] px-3 py-2.5 animate-rise"
@@ -52,15 +62,34 @@ export function AppCard({
           </p>
         ) : null}
         {app.url ? (
-          <button
-            type="button"
-            className="mt-0.5 flex max-w-full items-center gap-1 text-left font-mono text-[12px] text-primary hover:underline"
-            title={`${app.url} を開く`}
-            onClick={onOpenUrl}
-          >
-            <span className="truncate">{app.url}</span>
-            <ExternalLink className="size-3 shrink-0" />
-          </button>
+          <div className="mt-0.5 flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              className="flex min-w-0 items-center gap-1 text-left font-mono text-[12px] text-primary hover:underline"
+              title={`${app.url} を開く`}
+              onClick={onOpenUrl}
+            >
+              <span className="min-w-0 truncate">{app.url}</span>
+              <ExternalLink className="size-3 shrink-0" />
+            </button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    className="shrink-0 text-muted-foreground"
+                    aria-label="URLをコピー"
+                    onClick={copyUrl}
+                  />
+                }
+              >
+                <Copy />
+              </TooltipTrigger>
+              <TooltipContent>URLをコピー</TooltipContent>
+            </Tooltip>
+          </div>
         ) : null}
         <KeepAliveControls
           app={app}
