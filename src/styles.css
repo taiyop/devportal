@@ -292,7 +292,7 @@
   --wails-draggable: drag;
 }
 
-.sidebar :is(a, button, input, textarea, select, label, nav),
+.sidebar :is(a, button, input, textarea, select, label, nav, [data-slot="switch"]),
 .sidebar-titlebar :is(a, button, input, textarea, select, label),
 .toolbar :is(a, button, input, textarea, select, label, [data-slot="input-group"]),
 .toolbar > * {
@@ -342,7 +342,7 @@
   --wails-draggable: drag;
 }
 
-.window-drag :is(a, button, input, textarea, select, label) {
+.window-drag :is(a, button, input, textarea, select, label, [data-slot="switch"]) {
   --wails-draggable: no-drag;
 }
 

@@ -605,8 +605,7 @@ export default function App() {
           <GatewayBar
             status={gateway}
             busy={gatewayBusy}
-            onStart={() => void toggleGateway(true)}
-            onStop={() => void toggleGateway(false)}
+            onToggle={(running) => void toggleGateway(running)}
           />
 
           <div className="mt-3 flex items-center justify-between gap-2 px-1">
