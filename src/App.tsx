@@ -1,4 +1,13 @@
-import { FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import {
   AppWindow,
   CirclePlay,
@@ -24,6 +33,7 @@ import {
   openAppUrl,
   openConfigPath,
   pickFolder,
+  reorderApps,
   setGatewayPort,
   setPinned,
   startApp,
@@ -57,6 +67,7 @@ import { hostnameFieldError } from "@/lib/hostname";
 import { navigate, useAppRoute } from "@/lib/route";
 import { isOff, matchesFilter, type BoardFilter } from "@/lib/status";
 import { promptVisible, useAppUpdater } from "@/lib/updater";
+import { cn } from "@/lib/utils";
 import { persistTheme, readTheme, type Theme } from "./theme";
 import {
   AppInput,
@@ -94,6 +105,11 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(() => readTheme());
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<BoardFilter>("all");
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropHint, setDropHint] = useState<{
+    id: string;
+    after: boolean;
+  } | null>(null);
   const [gateway, setGateway] = useState<GatewayStatus>(() => idleGateway());
   const [gatewayBusy, setGatewayBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -477,6 +493,93 @@ export default function App() {
     }
   }
 
+  function clearDrag() {
+    setDragId(null);
+    setDropHint(null);
+  }
+
+  async function commitOrder(next: AppView[]) {
+    const unchanged =
+      next.length === apps.length &&
+      next.every((app, index) => app.id === apps[index].id);
+    if (unchanged) return;
+    setApps(next);
+    if (preview) return;
+    try {
+      const views = await reorderApps(next.map((app) => app.id));
+      setApps((current) => {
+        const byId = new Map(current.map((app) => [app.id, app]));
+        const known = new Set(views.map((view) => view.id));
+        return [
+          ...views.map((view) => byId.get(view.id) ?? view),
+          ...current.filter((app) => !known.has(app.id)),
+        ];
+      });
+    } catch (error) {
+      toast.error(asError(error));
+      try {
+        setApps(await listApps());
+      } catch {
+        // keep current
+      }
+    }
+  }
+
+  function dropOn(targetId: string, after: boolean) {
+    const id = dragId;
+    clearDrag();
+    if (!id || id === targetId) return;
+    void commitOrder(moveApp(apps, id, targetId, after));
+  }
+
+  function reorderKey(
+    app: AppView,
+    event: KeyboardEvent<HTMLButtonElement>,
+  ) {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const index = visibleApps.findIndex((item) => item.id === app.id);
+    const neighbor =
+      event.key === "ArrowUp"
+        ? visibleApps[index - 1]
+        : visibleApps[index + 1];
+    if (!neighbor) return;
+    void commitOrder(
+      moveApp(apps, app.id, neighbor.id, event.key === "ArrowDown"),
+    );
+  }
+
+  function listDragOver(event: DragEvent<HTMLUListElement>) {
+    event.preventDefault();
+    if (!dragId) return;
+    event.dataTransfer.dropEffect = "move";
+    const hint = dropTargetAt(event.currentTarget, event.clientY);
+    const next = hint && hint.id !== dragId ? hint : null;
+    setDropHint((current) =>
+      current?.id === next?.id && current?.after === next?.after
+        ? current
+        : next,
+    );
+  }
+
+  function listDrop(event: DragEvent<HTMLUListElement>) {
+    event.preventDefault();
+    if (!dragId) return;
+    const hint = dropTargetAt(event.currentTarget, event.clientY);
+    if (hint) {
+      dropOn(hint.id, hint.after);
+    } else {
+      clearDrag();
+    }
+  }
+
+  function listDragLeave(event: DragEvent<HTMLUListElement>) {
+    const related = event.relatedTarget as Node | null;
+    if (!related || !event.currentTarget.contains(related)) {
+      setDropHint(null);
+    }
+  }
+
   async function openInBrowser(app: AppView) {
     if (!app.url) return;
     if (!isWails() || preview) {
@@ -754,13 +857,50 @@ export default function App() {
                 }}
               />
             ) : (
-              <ul className="mx-auto flex max-w-3xl list-none flex-col gap-2 p-0">
+              <ul
+                className="mx-auto flex max-w-3xl list-none flex-col gap-2 p-0"
+                onDragOver={listDragOver}
+                onDrop={listDrop}
+                onDragLeave={listDragLeave}
+              >
                 {visibleApps.map((app, index) => (
-                  <li key={app.id}>
+                  <li
+                    key={app.id}
+                    data-app-id={app.id}
+                    className={cn(
+                      "relative",
+                      dragId === app.id && "opacity-45",
+                    )}
+                  >
+                    {dropHint?.id === app.id ? (
+                      <div
+                        aria-hidden="true"
+                        className={cn(
+                          "pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded-full bg-primary",
+                          dropHint.after ? "-bottom-[5px]" : "-top-[5px]",
+                        )}
+                      />
+                    ) : null}
                     <AppCard
                       app={app}
                       index={index}
                       busy={busyId === app.id}
+                      reorder={
+                        apps.length > 1
+                          ? {
+                              onDragStart: (event) => {
+                                event.dataTransfer.setData(
+                                  "text/plain",
+                                  app.id,
+                                );
+                                event.dataTransfer.effectAllowed = "move";
+                                setDragId(app.id);
+                              },
+                              onDragEnd: clearDrag,
+                              onKeyDown: (event) => reorderKey(app, event),
+                            }
+                          : undefined
+                      }
                       onToggle={() => toggle(app)}
                       onEdit={() => openEdit(app)}
                       onDetails={() => setDetailAppId(app.id)}
@@ -926,6 +1066,39 @@ function previewLogs(): Record<string, LogEvent[]> {
       { id: "running", stream: "stdout", line: "GET /pages/home 200  3ms" },
     ],
   };
+}
+
+function moveApp(
+  list: AppView[],
+  dragId: string,
+  targetId: string,
+  after: boolean,
+): AppView[] {
+  if (dragId === targetId) return list;
+  const from = list.findIndex((app) => app.id === dragId);
+  if (from === -1) return list;
+  const next = [...list];
+  const [moved] = next.splice(from, 1);
+  const target = next.findIndex((app) => app.id === targetId);
+  if (target === -1) return list;
+  next.splice(after ? target + 1 : target, 0, moved);
+  return next;
+}
+
+function dropTargetAt(
+  listEl: HTMLElement,
+  y: number,
+): { id: string; after: boolean } | null {
+  for (const item of Array.from(listEl.children)) {
+    const id = (item as HTMLElement).dataset.appId;
+    if (!id) continue;
+    const rect = item.getBoundingClientRect();
+    if (y < rect.top + rect.height / 2) return { id, after: false };
+    if (y <= rect.bottom) return { id, after: true };
+  }
+  const last = listEl.lastElementChild as HTMLElement | null;
+  const id = last?.dataset.appId;
+  return id ? { id, after: true } : null;
 }
 
 function mergeApp(list: AppView[], next: AppView): AppView[] {

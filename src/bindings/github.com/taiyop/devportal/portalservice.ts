@@ -49,6 +49,10 @@ export function PickFolder(): $CancellablePromise<string> {
     return $Call.ByID(1305646314);
 }
 
+export function ReorderApps(ids: string[] | null): $CancellablePromise<$models.AppView[] | null> {
+    return $Call.ByID(3289648978, ids);
+}
+
 export function RestartToUpdate(): $CancellablePromise<void> {
     return $Call.ByID(2920253082);
 }

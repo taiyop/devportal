@@ -123,6 +123,10 @@ func (s *PortalService) DeleteApp(id string) error {
 	return s.portal.Delete(id)
 }
 
+func (s *PortalService) ReorderApps(ids []string) ([]AppView, error) {
+	return s.portal.Reorder(ids)
+}
+
 func (s *PortalService) StartApp(id string) (AppView, error) {
 	view, err := s.portal.Start(id)
 	if err != nil {
