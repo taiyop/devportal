@@ -813,7 +813,7 @@ export default function App() {
               />
             </>
           )}
-          <Toaster theme={theme} position="bottom-right" />
+          <Toaster theme={theme} position="top-right" />
         </>
       }
     >
