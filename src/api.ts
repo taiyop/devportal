@@ -62,6 +62,10 @@ export async function deleteApp(id: string): Promise<void> {
   await PortalService.DeleteApp(id);
 }
 
+export async function reorderApps(ids: string[]): Promise<AppView[]> {
+  return ((await PortalService.ReorderApps(ids)) ?? []).map(asAppView);
+}
+
 export async function startApp(id: string): Promise<AppView> {
   return asAppView(await PortalService.StartApp(id));
 }

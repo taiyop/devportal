@@ -1,4 +1,13 @@
-import { Copy, ExternalLink, Info, Pencil, Play, Square } from "lucide-react";
+import {
+  Copy,
+  ExternalLink,
+  GripVertical,
+  Info,
+  Pencil,
+  Play,
+  Square,
+} from "lucide-react";
+import type { DragEvent, KeyboardEvent } from "react";
 import { toast } from "sonner";
 import { KeepAliveControls } from "@/components/keep-alive-controls";
 import { Button } from "@/components/ui/button";
@@ -14,10 +23,17 @@ import type { AppView } from "@/types";
 import { AppFavicon } from "@/components/app-favicon";
 import { StatusBadge } from "@/components/status-badge";
 
+export interface AppCardReorder {
+  onDragStart: (event: DragEvent<HTMLButtonElement>) => void;
+  onDragEnd: () => void;
+  onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
+}
+
 export function AppCard({
   app,
   index,
   busy,
+  reorder,
   onToggle,
   onEdit,
   onDetails,
@@ -27,6 +43,7 @@ export function AppCard({
   app: AppView;
   index: number;
   busy: boolean;
+  reorder?: AppCardReorder;
   onToggle: () => void;
   onEdit: () => void;
   onDetails: () => void;
@@ -48,6 +65,26 @@ export function AppCard({
       className="surface relative flex w-full items-start gap-3 rounded-[14px] px-3 py-2.5 animate-rise"
       style={{ animationDelay: `${index * 40}ms` }}
     >
+      {reorder ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                draggable
+                aria-label={`${app.name} を並べ替え（上下キーでも移動できます）`}
+                className="mt-1.5 -ml-1 inline-flex size-5 shrink-0 cursor-grab items-center justify-center rounded-md text-muted-foreground/60 outline-none hover:bg-muted hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60 active:cursor-grabbing"
+                onDragStart={reorder.onDragStart}
+                onDragEnd={reorder.onDragEnd}
+                onKeyDown={reorder.onKeyDown}
+              />
+            }
+          >
+            <GripVertical />
+          </TooltipTrigger>
+          <TooltipContent>ドラッグまたは ↑↓ キーで並べ替え</TooltipContent>
+        </Tooltip>
+      ) : null}
       <AppFavicon name={app.name} favicon={app.favicon} status={app.status} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">

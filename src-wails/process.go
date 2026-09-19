@@ -348,6 +348,41 @@ func (p *Portal) Delete(id string) error {
 	return saveConfig(inner.configPath, inner.file)
 }
 
+func (p *Portal) Reorder(ids []string) ([]AppView, error) {
+	inner := p.lock()
+	defer p.unlock()
+	byID := make(map[string]AppEntry, len(inner.file.Apps))
+	for _, app := range inner.file.Apps {
+		byID[app.ID] = app
+	}
+	next := make([]AppEntry, 0, len(inner.file.Apps))
+	seen := make(map[string]bool, len(ids))
+	for _, raw := range ids {
+		id := strings.TrimSpace(raw)
+		if id == "" || seen[id] {
+			continue
+		}
+		if app, ok := byID[id]; ok {
+			next = append(next, app)
+			seen[id] = true
+		}
+	}
+	for _, app := range inner.file.Apps {
+		if !seen[app.ID] {
+			next = append(next, app)
+		}
+	}
+	inner.file.Apps = next
+	if err := saveConfig(inner.configPath, inner.file); err != nil {
+		return nil, err
+	}
+	out := make([]AppView, 0, len(next))
+	for _, entry := range next {
+		out = append(out, viewFor(inner, entry))
+	}
+	return out, nil
+}
+
 func (p *Portal) Start(id string) (AppView, error) {
 	return p.start(id, true)
 }

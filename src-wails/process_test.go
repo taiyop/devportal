@@ -384,6 +384,58 @@ func TestUpsertRejectsSamePortEnvNames(t *testing.T) {
 	}
 }
 
+func TestReorderPersistsOrder(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "apps.yml")
+	apps := []AppEntry{
+		{ID: "a", Name: "a", Folder: dir, Command: "npm run dev", PortMode: PortModeAuto, Env: []EnvVar{}},
+		{ID: "b", Name: "b", Folder: dir, Command: "npm run dev", PortMode: PortModeAuto, Env: []EnvVar{}},
+		{ID: "c", Name: "c", Folder: dir, Command: "npm run dev", PortMode: PortModeAuto, Env: []EnvVar{}},
+	}
+	p := &Portal{inner: Inner{
+		configPath:  configPath,
+		runningPath: filepath.Join(dir, "running.yml"),
+		file:        ConfigFile{Apps: apps},
+		runtime:     map[string]*Runtime{},
+		errors:      map[string]string{},
+		logs:        map[string][]LogEvent{},
+	}}
+	views, err := p.Reorder([]string{"c", "a", "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, len(views))
+	for i, view := range views {
+		got[i] = view.ID
+	}
+	if strings.Join(got, ",") != "c,a,b" {
+		t.Fatalf("order %v", got)
+	}
+	reloaded, err := loadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = got[:0]
+	for _, app := range reloaded.Apps {
+		got = append(got, app.ID)
+	}
+	if strings.Join(got, ",") != "c,a,b" {
+		t.Fatalf("persisted order %v", got)
+	}
+	// Unknown IDs are dropped and unlisted apps keep their place at the end.
+	views, err = p.Reorder([]string{"a", "missing", "c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = got[:0]
+	for _, view := range views {
+		got = append(got, view.ID)
+	}
+	if strings.Join(got, ",") != "a,c,b" {
+		t.Fatalf("partial reorder %v", got)
+	}
+}
+
 func TestStartAndStopBackendProcess(t *testing.T) {
 	if isWindows() {
 		t.Skip("process groups are unix-oriented")
