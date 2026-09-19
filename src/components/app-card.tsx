@@ -1,5 +1,6 @@
 import {
   Copy,
+  CopyPlus,
   ExternalLink,
   GripVertical,
   Info,
@@ -36,6 +37,7 @@ export function AppCard({
   reorder,
   onToggle,
   onEdit,
+  onDuplicate,
   onDetails,
   onOpenUrl,
   onSetPinned,
@@ -46,6 +48,7 @@ export function AppCard({
   reorder?: AppCardReorder;
   onToggle: () => void;
   onEdit: () => void;
+  onDuplicate: () => void;
   onDetails: () => void;
   onOpenUrl: () => void;
   onSetPinned: (pinned: boolean) => void;
@@ -168,6 +171,23 @@ export function AppCard({
             <Info />
           </TooltipTrigger>
           <TooltipContent>詳細</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label={`${app.name} を複製`}
+                onClick={onDuplicate}
+              />
+            }
+          >
+            <CopyPlus />
+          </TooltipTrigger>
+          <TooltipContent>複製</TooltipContent>
         </Tooltip>
 
         <Tooltip>

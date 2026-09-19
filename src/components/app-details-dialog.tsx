@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import {
   Copy,
+  CopyPlus,
   ExternalLink,
   Pencil,
   Play,
@@ -31,6 +32,7 @@ export function AppDetailsDialog({
   onOpenChange,
   onToggle,
   onEdit,
+  onDuplicate,
   onDelete,
   onOpenUrl,
   onOpenLogs,
@@ -41,6 +43,7 @@ export function AppDetailsDialog({
   onOpenChange: (open: boolean) => void;
   onToggle: () => void;
   onEdit: () => void;
+  onDuplicate: () => void;
   onDelete: () => void;
   onOpenUrl: () => void;
   onOpenLogs: () => void;
@@ -254,6 +257,16 @@ export function AppDetailsDialog({
             ログ
           </Button>
           <div className="ml-auto flex items-center gap-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label="複製"
+              disabled={!app}
+              onClick={onDuplicate}
+            >
+              <CopyPlus />
+            </Button>
             <Button
               type="button"
               variant="outline"

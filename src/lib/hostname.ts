@@ -35,3 +35,46 @@ function validHostnameLabel(s: string): boolean {
   if (s.startsWith("-") || s.endsWith("-")) return false;
   return /^[a-z0-9-]+$/.test(s);
 }
+
+export function slugHostname(input: string): string {
+  const source = input.trim().toLowerCase();
+  let out = "";
+  let lastDash = false;
+  for (const ch of source) {
+    const alnum = (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9");
+    if (alnum) {
+      out += ch;
+      lastDash = false;
+      continue;
+    }
+    if (out.length > 0 && !lastDash) {
+      out += "-";
+      lastDash = true;
+    }
+  }
+  let result = out.replace(/^-+|-+$/g, "");
+  if (result.length > 63) {
+    result = result.slice(0, 63).replace(/-+$/g, "");
+  }
+  return result === "" ? "app" : result;
+}
+
+export function uniqueHostname(
+  taken: readonly string[],
+  preferred: string,
+): string {
+  if (preferred === "") return "";
+  const used = new Set(taken);
+  let candidate = preferred;
+  let n = 2;
+  while (used.has(candidate)) {
+    const suffix = `-${n}`;
+    let base = preferred;
+    if (base.length + suffix.length > 63) {
+      base = base.slice(0, 63 - suffix.length).replace(/-+$/g, "");
+    }
+    candidate = `${base}${suffix}`;
+    n += 1;
+  }
+  return candidate;
+}
