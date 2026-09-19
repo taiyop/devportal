@@ -72,6 +72,7 @@ import { persistTheme, readTheme, type Theme } from "./theme";
 import {
   AppInput,
   AppView,
+  duplicateForm,
   emptyForm,
   formFromApp,
   LogEvent,
@@ -275,6 +276,16 @@ export default function App() {
     setFormError(null);
     formSeed.current = `edit:${app.id}`;
     navigate({ page: "edit", id: app.id, preview: route.preview });
+  }
+
+  function openDuplicate(app: AppView) {
+    setForm(duplicateForm(app, apps));
+    setFormError(null);
+    formSeed.current = "new";
+    navigate({ page: "new", preview: route.preview });
+    toast.info(
+      `${app.name} の内容を複製しました。ドメインと環境変数を調整して保存してください。`,
+    );
   }
 
   async function chooseFolder(target: "app" | number = "app") {
@@ -760,6 +771,11 @@ export default function App() {
                   setDetailAppId(null);
                   openEdit(detailApp);
                 }}
+                onDuplicate={() => {
+                  if (!detailApp) return;
+                  setDetailAppId(null);
+                  openDuplicate(detailApp);
+                }}
                 onDelete={() => {
                   if (!detailApp) return;
                   setDetailAppId(null);
@@ -903,6 +919,7 @@ export default function App() {
                       }
                       onToggle={() => toggle(app)}
                       onEdit={() => openEdit(app)}
+                      onDuplicate={() => openDuplicate(app)}
                       onDetails={() => setDetailAppId(app.id)}
                       onOpenUrl={() => openInBrowser(app)}
                       onSetPinned={(pinned) => void pinApp(app, pinned)}

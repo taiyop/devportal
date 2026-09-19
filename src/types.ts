@@ -1,3 +1,5 @@
+import { slugHostname, uniqueHostname } from "@/lib/hostname";
+
 export type PortMode = "auto" | "manual";
 export type AppStatus = "stopped" | "idle" | "starting" | "running" | "error";
 
@@ -143,5 +145,21 @@ export const formFromApp = (app: AppView): AppInput => ({
     env: copyEnv(backend.env),
   })),
 });
+
+export const duplicateForm = (app: AppView, siblings: AppView[]): AppInput => {
+  const base = formFromApp(app);
+  const name = base.name.trim() ? `${base.name} のコピー` : "";
+  return {
+    ...base,
+    id: null,
+    name,
+    hostname: uniqueHostname(
+      siblings.map((item) => item.hostname),
+      app.hostname || slugHostname(base.name),
+    ),
+    port: null,
+    backends: base.backends.map((backend) => ({ ...backend, port: null })),
+  };
+};
 
 export { emptyEnvRow };
