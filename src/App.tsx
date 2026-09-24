@@ -11,6 +11,8 @@ import {
 import {
   AppWindow,
   CirclePlay,
+  FolderCog,
+  Inbox,
   Moon,
   Plus,
   Power,
@@ -20,6 +22,7 @@ import {
 import { toast } from "sonner";
 import {
   deleteApp,
+  deleteCategory,
   getConfigPath,
   getGatewayStatus,
   getLogs,
@@ -27,6 +30,7 @@ import {
   isBrowserPreview,
   isWails,
   listApps,
+  listCategories,
   onAppLog,
   onAppStatus,
   onGatewayStatus,
@@ -34,6 +38,7 @@ import {
   openConfigPath,
   pickFolder,
   reorderApps,
+  reorderCategories,
   setGatewayPort,
   setPinned,
   startApp,
@@ -41,12 +46,14 @@ import {
   stopApp,
   stopGateway,
   upsertApp,
+  upsertCategory,
   type GatewayStatus,
 } from "./api";
 import { AppCard } from "@/components/app-card";
 import { AppDetailsDialog } from "@/components/app-details-dialog";
 import { AppFormPage } from "@/components/app-form-page";
 import { AppShell } from "@/components/app-shell";
+import { CategoriesPage } from "@/components/categories-page";
 import { DeleteAppDialog } from "@/components/delete-app-dialog";
 import { EmptyBoard } from "@/components/empty-board";
 import { GatewayBar } from "@/components/gateway-bar";
@@ -64,6 +71,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { asError } from "@/lib/error";
 import { hostnameFieldError } from "@/lib/hostname";
+import { moveById } from "@/lib/reorder";
 import { navigate, useAppRoute } from "@/lib/route";
 import { isOff, matchesFilter, type BoardFilter } from "@/lib/status";
 import { promptVisible, useAppUpdater } from "@/lib/updater";
@@ -72,6 +80,7 @@ import { persistTheme, readTheme, type Theme } from "./theme";
 import {
   AppInput,
   AppView,
+  Category,
   duplicateForm,
   emptyForm,
   formFromApp,
@@ -91,6 +100,11 @@ export default function App() {
   const route = useAppRoute();
   const preview = route.preview || isBrowserPreview();
   const [apps, setApps] = useState<AppView[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [sidebarDropId, setSidebarDropId] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(
+    null,
+  );
   const [logs, setLogs] = useState<Record<string, LogEvent[]>>({});
   const [logAppId, setLogAppId] = useState<string | null>(null);
   const [detailAppId, setDetailAppId] = useState<string | null>(null);
@@ -117,6 +131,7 @@ export default function App() {
   const [savingGatewayPort, setSavingGatewayPort] = useState(false);
   const updater = useAppUpdater(preview);
   const formSeed = useRef<string | null>(null);
+  const pendingCategoryScroll = useRef<string | null>(null);
   const updateWaiting = promptVisible(updater);
 
   useEffect(() => {
@@ -128,6 +143,7 @@ export default function App() {
 
     if (preview) {
       setApps(previewApps());
+      setCategories(previewCategories());
       setLogs(previewLogs());
       setConfigPath(
         "/Users/you/Library/Application Support/devportal/apps.yml",
@@ -147,15 +163,18 @@ export default function App() {
 
     (async () => {
       try {
-        const [nextApps, path, nextGateway] = await Promise.all([
-          listApps(),
-          getConfigPath(),
-          getGatewayStatus(),
-        ]);
+        const [nextApps, path, nextGateway, nextCategories] =
+          await Promise.all([
+            listApps(),
+            getConfigPath(),
+            getGatewayStatus(),
+            listCategories(),
+          ]);
         if (cancelled) return;
         setApps(nextApps);
         setConfigPath(path);
         setGateway(nextGateway);
+        setCategories(nextCategories);
       } catch (error) {
         if (!cancelled) {
           setBootError(
@@ -202,6 +221,20 @@ export default function App() {
     };
   }, [apps]);
 
+  const categoriesById = useMemo(
+    () => new Map(categories.map((cat) => [cat.id, cat])),
+    [categories],
+  );
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const app of apps) {
+      const key = categoriesById.has(app.categoryId) ? app.categoryId : "";
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return counts;
+  }, [apps, categoriesById]);
+
   const visibleApps = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return apps.filter((app) => {
@@ -213,6 +246,7 @@ export default function App() {
         app.hostname,
         app.folder,
         app.command,
+        categoriesById.get(app.categoryId)?.name ?? "",
         ...(app.backends ?? []).flatMap((backend) => [
           backend.folder,
           backend.command,
@@ -220,7 +254,32 @@ export default function App() {
         ]),
       ].some((value) => value.toLowerCase().includes(needle));
     });
-  }, [apps, filter, query]);
+  }, [apps, filter, query, categoriesById]);
+
+  const groupedApps = useMemo(() => {
+    if (categories.length === 0) {
+      return [{ id: "", name: "", apps: visibleApps }];
+    }
+    const groups = categories.map((cat) => ({
+      id: cat.id,
+      name: cat.name,
+      apps: [] as AppView[],
+    }));
+    const byId = new Map(groups.map((group) => [group.id, group]));
+    const uncategorized = { id: "", name: "未分類", apps: [] as AppView[] };
+    for (const app of visibleApps) {
+      (byId.get(app.categoryId) ?? uncategorized).apps.push(app);
+    }
+    return [
+      ...groups.filter((group) => group.apps.length > 0),
+      ...(uncategorized.apps.length > 0 ? [uncategorized] : []),
+    ];
+  }, [visibleApps, categories]);
+
+  const orderedApps = useMemo(
+    () => groupedApps.flatMap((group) => group.apps),
+    [groupedApps],
+  );
 
   const confirmApp = apps.find((app) => app.id === confirmId) ?? null;
   const logApp = apps.find((app) => app.id === logAppId) ?? null;
@@ -232,7 +291,7 @@ export default function App() {
       : null;
 
   useEffect(() => {
-    if (route.page === "board") {
+    if (route.page === "board" || route.page === "categories") {
       formSeed.current = null;
       return;
     }
@@ -256,6 +315,37 @@ export default function App() {
   function goBoard() {
     navigate({ page: "board", preview: route.preview });
   }
+
+  function scrollToCategory(id: string) {
+    if (route.page !== "board") {
+      pendingCategoryScroll.current = id;
+      navigate({ page: "board", preview: route.preview });
+      return;
+    }
+    scrollCategoryIntoView(id);
+  }
+
+  function selectCategory(id: string) {
+    if (selectedCategory === id) {
+      setSelectedCategory(null);
+      return;
+    }
+    setSelectedCategory(id);
+    scrollToCategory(id);
+  }
+
+  useEffect(() => {
+    if (
+      route.page !== "board" ||
+      !ready ||
+      pendingCategoryScroll.current === null
+    ) {
+      return;
+    }
+    const target = pendingCategoryScroll.current;
+    pendingCategoryScroll.current = null;
+    scrollCategoryIntoView(target);
+  }, [route.page, ready]);
 
   function selectFilter(id: BoardFilter) {
     setFilter(id);
@@ -363,6 +453,7 @@ export default function App() {
           name,
           description: form.description,
           hostname: form.hostname || name.toLowerCase().replace(/[^a-z0-9-]+/g, "-"),
+          categoryId: form.categoryId,
           folder: form.folder,
           command: form.command,
           portMode: form.portMode,
@@ -507,6 +598,7 @@ export default function App() {
   function clearDrag() {
     setDragId(null);
     setDropHint(null);
+    setSidebarDropId(null);
   }
 
   async function commitOrder(next: AppView[]) {
@@ -540,7 +632,155 @@ export default function App() {
     const id = dragId;
     clearDrag();
     if (!id || id === targetId) return;
-    void commitOrder(moveApp(apps, id, targetId, after));
+    const dragged = apps.find((item) => item.id === id);
+    const target = apps.find((item) => item.id === targetId);
+    if (!dragged || !target) return;
+    let next = apps;
+    if (dragged.categoryId !== target.categoryId) {
+      next = apps.map((item) =>
+        item.id === id ? { ...item, categoryId: target.categoryId } : item,
+      );
+      setApps(next);
+      toast.success(
+        `${dragged.name} を ${categoriesById.get(target.categoryId)?.name ?? "未分類"} に移動しました`,
+      );
+      void persistCategory(dragged, target.categoryId);
+    }
+    void commitOrder(moveById(next, id, targetId, after));
+  }
+
+  async function persistCategory(app: AppView, categoryId: string) {
+    if (preview) return;
+    try {
+      const saved = await upsertApp({ ...formFromApp(app), categoryId });
+      setApps((current) => mergeApp(current, saved));
+    } catch (error) {
+      toast.error(asError(error));
+      try {
+        setApps(await listApps());
+      } catch {
+        // keep current
+      }
+    }
+  }
+
+  async function assignCategory(appId: string, categoryId: string) {
+    const app = apps.find((item) => item.id === appId);
+    if (!app || app.categoryId === categoryId) return;
+    setApps((current) =>
+      current.map((item) =>
+        item.id === appId ? { ...item, categoryId } : item,
+      ),
+    );
+    toast.success(
+      `${app.name} を ${categoriesById.get(categoryId)?.name ?? "未分類"} に移動しました`,
+    );
+    await persistCategory(app, categoryId);
+  }
+
+  async function createCategory(name: string): Promise<boolean> {
+    if (preview) {
+      setCategories((current) => [
+        ...current,
+        { id: `cat-${Date.now()}`, name, color: "" },
+      ]);
+      return true;
+    }
+    try {
+      const cat = await upsertCategory(null, name, "");
+      setCategories((current) => [...current, cat]);
+      return true;
+    } catch (error) {
+      toast.error(asError(error));
+      return false;
+    }
+  }
+
+  async function renameCategory(id: string, name: string): Promise<boolean> {
+    const previous = categories;
+    setCategories((current) =>
+      current.map((cat) => (cat.id === id ? { ...cat, name } : cat)),
+    );
+    if (preview) return true;
+    const color =
+      categories.find((cat) => cat.id === id)?.color ?? "";
+    try {
+      const saved = await upsertCategory(id, name, color);
+      setCategories((current) =>
+        current.map((cat) => (cat.id === id ? saved : cat)),
+      );
+      return true;
+    } catch (error) {
+      toast.error(asError(error));
+      setCategories(previous);
+      return false;
+    }
+  }
+
+  async function setCategoryColor(
+    id: string,
+    color: string,
+  ): Promise<boolean> {
+    const cat = categories.find((item) => item.id === id);
+    if (!cat || cat.color === color) return true;
+    const previous = categories;
+    setCategories((current) =>
+      current.map((item) => (item.id === id ? { ...item, color } : item)),
+    );
+    if (preview) return true;
+    try {
+      const saved = await upsertCategory(id, cat.name, color);
+      setCategories((current) =>
+        current.map((item) => (item.id === id ? saved : item)),
+      );
+      return true;
+    } catch (error) {
+      toast.error(asError(error));
+      setCategories(previous);
+      return false;
+    }
+  }
+
+  async function removeCategory(id: string): Promise<void> {
+    const previousCategories = categories;
+    const previousApps = apps;
+    setCategories((current) => current.filter((cat) => cat.id !== id));
+    setApps((current) =>
+      current.map((app) =>
+        app.categoryId === id ? { ...app, categoryId: "" } : app,
+      ),
+    );
+    if (preview) {
+      toast.success("カテゴリを削除しました");
+      return;
+    }
+    try {
+      await deleteCategory(id);
+      toast.success("カテゴリを削除しました");
+    } catch (error) {
+      toast.error(asError(error));
+      setCategories(previousCategories);
+      setApps(previousApps);
+    }
+  }
+
+  async function commitCategoryOrder(next: Category[]) {
+    const unchanged =
+      next.length === categories.length &&
+      next.every((cat, index) => cat.id === categories[index].id);
+    if (unchanged) return;
+    setCategories(next);
+    if (preview) return;
+    try {
+      setCategories(await reorderCategories(next.map((cat) => cat.id)));
+    } catch (error) {
+      toast.error(asError(error));
+      try {
+        setCategories(await listCategories());
+      } catch {
+        // keep current
+      }
+    }
   }
 
   function reorderKey(
@@ -551,12 +791,12 @@ export default function App() {
     const forward = event.key === "ArrowDown" || event.key === "ArrowRight";
     if (!backward && !forward) return;
     event.preventDefault();
-    const index = visibleApps.findIndex((item) => item.id === app.id);
+    const index = orderedApps.findIndex((item) => item.id === app.id);
     const neighbor = backward
-      ? visibleApps[index - 1]
-      : visibleApps[index + 1];
+      ? orderedApps[index - 1]
+      : orderedApps[index + 1];
     if (!neighbor) return;
-    void commitOrder(moveApp(apps, app.id, neighbor.id, forward));
+    void commitOrder(moveById(apps, app.id, neighbor.id, forward));
   }
 
   function listDragOver(event: DragEvent<HTMLUListElement>) {
@@ -723,6 +963,114 @@ export default function App() {
             ))}
           </nav>
 
+          <div className="mt-4">
+            <div className="flex items-center justify-between px-2 pb-1">
+              <p className="text-[11px] font-medium text-muted-foreground">
+                カテゴリ
+              </p>
+              <button
+                type="button"
+                className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground/70 outline-none hover:bg-sidebar-accent hover:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+                aria-label="カテゴリを管理"
+                aria-current={route.page === "categories" ? "page" : undefined}
+                onClick={() =>
+                  navigate({ page: "categories", preview: route.preview })
+                }
+              >
+                <FolderCog className="size-3.5" />
+              </button>
+            </div>
+            {categories.length > 0 ? (
+              <nav
+                className="flex flex-col gap-0.5"
+                aria-label="カテゴリへ移動"
+              >
+                {categories.map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    aria-pressed={selectedCategory === cat.id}
+                    className={cn(
+                      "nav-item",
+                      sidebarDropId === cat.id &&
+                        "bg-sidebar-accent ring-1 ring-primary/50",
+                      selectedCategory === cat.id && "bg-sidebar-accent",
+                    )}
+                    style={
+                      selectedCategory === cat.id && cat.color
+                        ? {
+                            backgroundColor: `color-mix(in srgb, ${cat.color} 14%, transparent)`,
+                          }
+                        : undefined
+                    }
+                    onClick={() => selectCategory(cat.id)}
+                    onDragOver={(event) => {
+                      if (!dragId) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setSidebarDropId(cat.id);
+                    }}
+                    onDragLeave={() =>
+                      setSidebarDropId((current) =>
+                        current === cat.id ? null : current,
+                      )
+                    }
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const id = dragId;
+                      setSidebarDropId(null);
+                      if (id) void assignCategory(id, cat.id);
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="nav-icon size-2 shrink-0 rounded-full"
+                      style={{
+                        backgroundColor: cat.color || "var(--border)",
+                      }}
+                    />
+                    <span className="min-w-0 flex-1 truncate">{cat.name}</span>
+                    <span className="tabular-nums text-[11px] text-muted-foreground">
+                      {categoryCounts[cat.id] ?? 0}
+                    </span>
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className={cn(
+                    "nav-item",
+                    sidebarDropId === "" &&
+                      "bg-sidebar-accent ring-1 ring-primary/50",
+                  )}
+                  onClick={() => scrollToCategory("")}
+                  onDragOver={(event) => {
+                    if (!dragId) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    setSidebarDropId("");
+                  }}
+                  onDragLeave={() =>
+                    setSidebarDropId((current) =>
+                      current === "" ? null : current,
+                    )
+                  }
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const id = dragId;
+                    setSidebarDropId(null);
+                    if (id) void assignCategory(id, "");
+                  }}
+                >
+                  <Inbox className="nav-icon size-4" />
+                  <span className="min-w-0 flex-1 truncate">未分類</span>
+                  <span className="tabular-nums text-[11px] text-muted-foreground">
+                    {categoryCounts[""] ?? 0}
+                  </span>
+                </button>
+              </nav>
+            ) : null}
+          </div>
+
           <GatewayBar
             status={gateway}
             busy={gatewayBusy}
@@ -766,6 +1114,11 @@ export default function App() {
             <>
               <AppDetailsDialog
                 app={detailApp}
+                categoryName={
+                  detailApp
+                    ? (categoriesById.get(detailApp.categoryId)?.name ?? null)
+                    : null
+                }
                 busy={busyId === detailApp?.id}
                 onOpenChange={(open) => {
                   if (!open) setDetailAppId(null);
@@ -883,67 +1236,99 @@ export default function App() {
                 }}
               />
             ) : (
-              <ul
-                className="mx-auto grid w-full max-w-6xl list-none grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 p-0"
-                onDragOver={listDragOver}
-                onDrop={listDrop}
-                onDragLeave={listDragLeave}
-              >
-                {visibleApps.map((app, index) => (
-                  <li
-                    key={app.id}
-                    data-app-id={app.id}
-                    className={cn(
-                      "relative flex min-w-0",
-                      dragId === app.id && "opacity-45",
-                    )}
-                  >
-                    {dropHint?.id === app.id ? (
-                      <div
-                        aria-hidden="true"
-                        className={cn(
-                          "pointer-events-none absolute inset-y-0 z-10 w-0.5 rounded-full bg-primary",
-                          dropHint.after ? "-right-[7px]" : "-left-[7px]",
-                        )}
-                      />
-                    ) : null}
-                    <AppCard
-                      app={app}
-                      index={index}
-                      busy={busyId === app.id}
-                      reorder={
-                        apps.length > 1
-                          ? {
-                              onDragStart: (event) => {
-                                event.dataTransfer.setData(
-                                  "text/plain",
-                                  app.id,
-                                );
-                                event.dataTransfer.effectAllowed = "move";
-                                setDragId(app.id);
-                              },
-                              onDragEnd: clearDrag,
-                              onKeyDown: (event) => reorderKey(app, event),
-                            }
-                          : undefined
+              <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+                <ul
+                  className="grid w-full list-none grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 p-0"
+                  onDragOver={listDragOver}
+                  onDrop={listDrop}
+                  onDragLeave={listDragLeave}
+                >
+                  {orderedApps.map((app, index) => (
+                    <li
+                      key={app.id}
+                      data-app-id={app.id}
+                      data-category-section={
+                        categoriesById.has(app.categoryId)
+                          ? app.categoryId
+                          : "__none"
                       }
-                      onToggle={() => toggle(app)}
-                      onEdit={() => openEdit(app)}
-                      onDuplicate={() => openDuplicate(app)}
-                      onDetails={() => setDetailAppId(app.id)}
-                      onOpenUrl={() => openInBrowser(app)}
-                      onSetPinned={(pinned) => void pinApp(app, pinned)}
-                    />
-                  </li>
-                ))}
-              </ul>
+                      className={cn(
+                        "relative flex min-w-0 scroll-mt-4",
+                        dragId === app.id && "opacity-45",
+                      )}
+                    >
+                      {dropHint?.id === app.id ? (
+                        <div
+                          aria-hidden="true"
+                          className={cn(
+                            "pointer-events-none absolute inset-y-0 z-10 w-0.5 rounded-full bg-primary",
+                            dropHint.after
+                              ? "-right-[7px]"
+                              : "-left-[7px]",
+                          )}
+                        />
+                      ) : null}
+                      <AppCard
+                        app={app}
+                        index={index}
+                        category={
+                          categoriesById.get(app.categoryId) ?? null
+                        }
+                        tintColor={
+                          app.categoryId &&
+                          app.categoryId === selectedCategory
+                            ? categoriesById.get(app.categoryId)?.color ||
+                              "var(--primary)"
+                            : null
+                        }
+                        busy={busyId === app.id}
+                        reorder={
+                          apps.length > 1
+                            ? {
+                                onDragStart: (event) => {
+                                  event.dataTransfer.setData(
+                                    "text/plain",
+                                    app.id,
+                                  );
+                                  event.dataTransfer.effectAllowed = "move";
+                                  setDragId(app.id);
+                                },
+                                onDragEnd: clearDrag,
+                                onKeyDown: (event) =>
+                                  reorderKey(app, event),
+                              }
+                            : undefined
+                        }
+                        onToggle={() => toggle(app)}
+                        onEdit={() => openEdit(app)}
+                        onDuplicate={() => openDuplicate(app)}
+                        onDetails={() => setDetailAppId(app.id)}
+                        onOpenUrl={() => openInBrowser(app)}
+                        onSetPinned={(pinned) => void pinApp(app, pinned)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </main>
         </>
+      ) : route.page === "categories" ? (
+        <CategoriesPage
+          categories={categories}
+          appCounts={categoryCounts}
+          onBack={goBoard}
+          onCreate={createCategory}
+          onRename={renameCategory}
+          onSetColor={setCategoryColor}
+          onDelete={removeCategory}
+          onReorder={(next) => void commitCategoryOrder(next)}
+        />
       ) : (
         <AppFormPage
           mode={route.page === "edit" ? "edit" : "create"}
           form={form}
+          categories={categories}
           saving={saving}
           error={formError}
           pickingFolder={pickingFolder}
@@ -966,6 +1351,7 @@ function previewBase(partial: Partial<AppView> & Pick<AppView, "id" | "name" | "
   const hostname = partial.hostname;
   return {
     description: "",
+    categoryId: "",
     folder: `/Users/you/repos/${hostname}`,
     command: "npm run dev",
     portMode: "auto",
@@ -987,6 +1373,14 @@ function previewBase(partial: Partial<AppView> & Pick<AppView, "id" | "name" | "
   };
 }
 
+function previewCategories(): Category[] {
+  return [
+    { id: "cat-docs", name: "ドキュメント", color: "#3e63dd" },
+    { id: "cat-tools", name: "開発ツール", color: "#30a46c" },
+    { id: "cat-internal", name: "社内", color: "#8e4ec6" },
+  ];
+}
+
 function previewApps(): AppView[] {
   return [
     previewBase({
@@ -994,6 +1388,7 @@ function previewApps(): AppView[] {
       name: "markdown_preview",
       description: "Markdown をブラウザでリアルタイムプレビューする",
       hostname: "markdown-preview",
+      categoryId: "cat-docs",
       command: "npm run dev",
       port: 5173,
       favicon: previewFavicon("#34c759", "M"),
@@ -1003,6 +1398,7 @@ function previewApps(): AppView[] {
       name: "Storybook",
       description: "UI コンポーネントをカタログとして確認する",
       hostname: "storybook",
+      categoryId: "cat-tools",
       folder: "/Users/you/repos/webapp",
       command: "npm run storybook",
       port: 6006,
@@ -1012,6 +1408,7 @@ function previewApps(): AppView[] {
       id: "mailhog",
       name: "mailhog",
       hostname: "mailhog",
+      categoryId: "cat-tools",
       folder: "/Users/you/tools/mailhog",
       command: "mailhog",
       portMode: "manual",
@@ -1023,6 +1420,7 @@ function previewApps(): AppView[] {
       name: "Invoice Maker",
       description: "請求書の下書きを作って PDF で確認する社内ツール",
       hostname: "invoice-maker",
+      categoryId: "cat-internal",
       command: "bun run dev",
       port: 3000,
       favicon: previewFavicon("#007aff", "I"),
@@ -1031,6 +1429,7 @@ function previewApps(): AppView[] {
       id: "swagger-ui",
       name: "swagger-ui",
       hostname: "swagger-ui",
+      categoryId: "cat-docs",
       folder: "/Users/you/repos/api",
       command: "npx swagger-ui-watcher",
       port: 8080,
@@ -1040,6 +1439,7 @@ function previewApps(): AppView[] {
       id: "running",
       name: "社内Wiki",
       hostname: "wiki",
+      categoryId: "cat-internal",
       folder: "/Users/you/repos/wiki",
       command: "bun run dev",
       portMode: "manual",
@@ -1095,21 +1495,11 @@ function previewLogs(): Record<string, LogEvent[]> {
   };
 }
 
-function moveApp(
-  list: AppView[],
-  dragId: string,
-  targetId: string,
-  after: boolean,
-): AppView[] {
-  if (dragId === targetId) return list;
-  const from = list.findIndex((app) => app.id === dragId);
-  if (from === -1) return list;
-  const next = [...list];
-  const [moved] = next.splice(from, 1);
-  const target = next.findIndex((app) => app.id === targetId);
-  if (target === -1) return list;
-  next.splice(after ? target + 1 : target, 0, moved);
-  return next;
+function scrollCategoryIntoView(id: string) {
+  const el = document.querySelector(
+    `[data-category-section="${CSS.escape(id || "__none")}"]`,
+  );
+  el?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function dropTargetAt(

@@ -11,6 +11,12 @@ export interface EnvVar {
   value: string;
 }
 
+export interface Category {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export interface BackendConfig {
   name: string;
   folder: string;
@@ -28,6 +34,7 @@ export interface AppView {
   name: string;
   description: string;
   hostname: string;
+  categoryId: string;
   folder: string;
   command: string;
   portMode: PortMode;
@@ -52,6 +59,7 @@ export interface AppInput {
   name: string;
   description: string;
   hostname: string;
+  categoryId: string;
   folder: string;
   command: string;
   portMode: PortMode;
@@ -106,6 +114,7 @@ export const emptyForm = (): AppInput => ({
   name: "",
   description: "",
   hostname: "",
+  categoryId: "",
   folder: "",
   command: "npm run dev",
   portMode: "auto",
@@ -126,6 +135,7 @@ export const formFromApp = (app: AppView): AppInput => ({
   name: app.name,
   description: app.description,
   hostname: app.hostname,
+  categoryId: app.categoryId,
   folder: app.folder,
   command: app.command,
   portMode: app.portMode,

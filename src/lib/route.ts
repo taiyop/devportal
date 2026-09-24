@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 export type AppRoute =
   | { page: "board"; preview: boolean }
   | { page: "new"; preview: boolean }
+  | { page: "categories"; preview: boolean }
   | { page: "edit"; id: string; preview: boolean };
 
 export function parseHash(hash: string): AppRoute {
@@ -13,6 +14,7 @@ export function parseHash(hash: string): AppRoute {
   path = path.replace(/^\/+/, "");
 
   if (path === "new") return { page: "new", preview };
+  if (path === "categories") return { page: "categories", preview };
   if (path.startsWith("edit/")) {
     const id = decodeURIComponent(path.slice("edit/".length));
     if (id) return { page: "edit", id, preview };
@@ -23,6 +25,8 @@ export function parseHash(hash: string): AppRoute {
 export function hashFor(route: AppRoute): string {
   if (route.page === "board") return route.preview ? "#preview" : "";
   if (route.page === "new") return route.preview ? "#preview/new" : "#/new";
+  if (route.page === "categories")
+    return route.preview ? "#preview/categories" : "#/categories";
   const id = encodeURIComponent(route.id);
   return route.preview ? `#preview/edit/${id}` : `#/edit/${id}`;
 }

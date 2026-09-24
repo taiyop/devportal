@@ -275,11 +275,16 @@ func upsert(inner *Inner, input AppInput) (AppEntry, error) {
 			return AppEntry{}, errString("アプリのポートと" + backendLabel(i, backend.Name) + "に同じ環境変数名は使えません: " + portEnv)
 		}
 	}
+	categoryID := strings.TrimSpace(input.CategoryID)
+	if categoryID != "" && !categoryExists(inner, categoryID) {
+		categoryID = ""
+	}
 	entry := AppEntry{
 		ID:            id,
 		Name:          name,
 		Description:   description,
 		Hostname:      hostname,
+		CategoryID:    categoryID,
 		Folder:        folder,
 		Command:       command,
 		PortMode:      input.PortMode,

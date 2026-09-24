@@ -1,9 +1,10 @@
 import { Events } from "@wailsio/runtime";
 import { PortalService } from "./bindings/github.com/taiyop/devportal";
-import type { AppInput, AppView, LogEvent } from "./types";
+import type { AppInput, AppView, Category, LogEvent } from "./types";
 import type {
   AppInput as BoundAppInput,
   AppView as BoundAppView,
+  CategoryEntry as BoundCategoryEntry,
   GatewayStatus as BoundGatewayStatus,
   LogEvent as BoundLogEvent,
 } from "./bindings/github.com/taiyop/devportal";
@@ -36,6 +37,7 @@ export async function upsertApp(input: AppInput): Promise<AppView> {
     name: input.name,
     description: input.description,
     hostname: input.hostname,
+    categoryId: input.categoryId,
     folder: input.folder,
     command: input.command,
     portMode: input.portMode as BoundAppInput["portMode"],
@@ -64,6 +66,28 @@ export async function deleteApp(id: string): Promise<void> {
 
 export async function reorderApps(ids: string[]): Promise<AppView[]> {
   return ((await PortalService.ReorderApps(ids)) ?? []).map(asAppView);
+}
+
+export async function listCategories(): Promise<Category[]> {
+  return ((await PortalService.ListCategories()) ?? []).map(asCategory);
+}
+
+export async function upsertCategory(
+  id: string | null,
+  name: string,
+  color: string,
+): Promise<Category> {
+  return asCategory(
+    await PortalService.UpsertCategory(id ?? "", name, color),
+  );
+}
+
+export async function deleteCategory(id: string): Promise<void> {
+  await PortalService.DeleteCategory(id);
+}
+
+export async function reorderCategories(ids: string[]): Promise<Category[]> {
+  return ((await PortalService.ReorderCategories(ids)) ?? []).map(asCategory);
 }
 
 export async function startApp(id: string): Promise<AppView> {
@@ -201,6 +225,7 @@ function asAppView(app: BoundAppView): AppView {
     name: app.name,
     description: app.description ?? "",
     hostname: app.hostname ?? "",
+    categoryId: app.categoryId ?? "",
     folder: app.folder,
     command: app.command,
     portMode: app.portMode === "manual" ? "manual" : "auto",
@@ -228,6 +253,14 @@ function asAppView(app: BoundAppView): AppView {
     favicon: app.favicon ?? null,
     pid: app.pid,
     error: app.error,
+  };
+}
+
+function asCategory(entry: BoundCategoryEntry): Category {
+  return {
+    id: entry.id,
+    name: entry.name ?? "",
+    color: entry.color ?? "",
   };
 }
 

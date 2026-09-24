@@ -127,6 +127,22 @@ func (s *PortalService) ReorderApps(ids []string) ([]AppView, error) {
 	return s.portal.Reorder(ids)
 }
 
+func (s *PortalService) ListCategories() ([]CategoryEntry, error) {
+	return s.portal.Categories(), nil
+}
+
+func (s *PortalService) UpsertCategory(id string, name string, color string) (CategoryEntry, error) {
+	return s.portal.UpsertCategory(id, name, color)
+}
+
+func (s *PortalService) DeleteCategory(id string) error {
+	return s.portal.DeleteCategory(id)
+}
+
+func (s *PortalService) ReorderCategories(ids []string) ([]CategoryEntry, error) {
+	return s.portal.ReorderCategories(ids)
+}
+
 func (s *PortalService) StartApp(id string) (AppView, error) {
 	view, err := s.portal.Start(id)
 	if err != nil {

@@ -6,6 +6,7 @@ export interface AppInput {
     "name": string;
     "description": string;
     "hostname": string;
+    "categoryId": string;
     "folder": string;
     "command": string;
     "portMode": PortMode;
@@ -35,6 +36,7 @@ export interface AppView {
     "name": string;
     "description": string;
     "hostname": string;
+    "categoryId": string;
     "folder": string;
     "command": string;
     "portMode": PortMode;
@@ -63,6 +65,12 @@ export interface BackendSpec {
     "portEnv": string;
     "appPortEnv": string;
     "env": EnvVar[] | null;
+}
+
+export interface CategoryEntry {
+    "id": string;
+    "name": string;
+    "color": string;
 }
 
 export interface EnvVar {

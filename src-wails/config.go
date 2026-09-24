@@ -41,7 +41,7 @@ func runningPath() (string, error) {
 
 func loadConfig(path string) (ConfigFile, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		empty := ConfigFile{Apps: []AppEntry{}}
+		empty := ConfigFile{Categories: []CategoryEntry{}, Apps: []AppEntry{}}
 		if err := saveConfig(path, empty); err != nil {
 			return ConfigFile{}, err
 		}
@@ -52,11 +52,14 @@ func loadConfig(path string) (ConfigFile, error) {
 		return ConfigFile{}, fmt.Errorf("設定ファイルを読めませんでした: %w", err)
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
-		return ConfigFile{Apps: []AppEntry{}}, nil
+		return ConfigFile{Categories: []CategoryEntry{}, Apps: []AppEntry{}}, nil
 	}
 	var file ConfigFile
 	if err := yaml.Unmarshal(raw, &file); err != nil {
 		return ConfigFile{}, fmt.Errorf("YAML の解析に失敗しました: %w", err)
+	}
+	if file.Categories == nil {
+		file.Categories = []CategoryEntry{}
 	}
 	if file.Apps == nil {
 		file.Apps = []AppEntry{}
@@ -67,6 +70,9 @@ func loadConfig(path string) (ConfigFile, error) {
 func saveConfig(path string, file ConfigFile) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("設定ディレクトリを作成できませんでした: %w", err)
+	}
+	if file.Categories == nil {
+		file.Categories = []CategoryEntry{}
 	}
 	if file.Apps == nil {
 		file.Apps = []AppEntry{}

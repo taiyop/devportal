@@ -15,6 +15,7 @@ export type {
     AppInput,
     AppView,
     BackendSpec,
+    CategoryEntry,
     EnvVar,
     GatewayStatus,
     LogEvent

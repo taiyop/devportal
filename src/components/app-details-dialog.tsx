@@ -28,6 +28,7 @@ import { resolvedAppPortEnv, resolvedPortEnv, type AppView } from "@/types";
 
 export function AppDetailsDialog({
   app,
+  categoryName,
   busy,
   onOpenChange,
   onToggle,
@@ -39,6 +40,7 @@ export function AppDetailsDialog({
   onSetPinned,
 }: {
   app: AppView | null;
+  categoryName?: string | null;
   busy: boolean;
   onOpenChange: (open: boolean) => void;
   onToggle: () => void;
@@ -96,6 +98,9 @@ export function AppDetailsDialog({
             <dl className="settings-group">
               {app.description ? (
                 <DetailRow label="説明">{app.description}</DetailRow>
+              ) : null}
+              {categoryName ? (
+                <DetailRow label="カテゴリ">{categoryName}</DetailRow>
               ) : null}
               {host ? (
                 <DetailRow label="ホスト" mono>

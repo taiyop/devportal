@@ -21,6 +21,10 @@ export function DeleteApp(id: string): $CancellablePromise<void> {
     return $Call.ByID(1334454351, id);
 }
 
+export function DeleteCategory(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2120491396, id);
+}
+
 export function GetConfigPath(): $CancellablePromise<string> {
     return $Call.ByID(1089872012);
 }
@@ -37,6 +41,10 @@ export function ListApps(): $CancellablePromise<$models.AppView[] | null> {
     return $Call.ByID(2911868755);
 }
 
+export function ListCategories(): $CancellablePromise<$models.CategoryEntry[] | null> {
+    return $Call.ByID(3140971499);
+}
+
 export function OpenAppURL(raw: string): $CancellablePromise<void> {
     return $Call.ByID(1192352855, raw);
 }
@@ -51,6 +59,10 @@ export function PickFolder(): $CancellablePromise<string> {
 
 export function ReorderApps(ids: string[] | null): $CancellablePromise<$models.AppView[] | null> {
     return $Call.ByID(3289648978, ids);
+}
+
+export function ReorderCategories(ids: string[] | null): $CancellablePromise<$models.CategoryEntry[] | null> {
+    return $Call.ByID(3350616254, ids);
 }
 
 export function RestartToUpdate(): $CancellablePromise<void> {
@@ -87,4 +99,8 @@ export function StopGateway(): $CancellablePromise<$models.GatewayStatus> {
 
 export function UpsertApp(input: $models.AppInput): $CancellablePromise<$models.AppView> {
     return $Call.ByID(3170962151, input);
+}
+
+export function UpsertCategory(id: string, name: string, color: string): $CancellablePromise<$models.CategoryEntry> {
+    return $Call.ByID(54399116, id, name, color);
 }

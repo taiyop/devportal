@@ -7,10 +7,12 @@ import {
   Pencil,
   Play,
   Square,
+  Tag,
 } from "lucide-react";
 import type { DragEvent, KeyboardEvent } from "react";
 import { toast } from "sonner";
 import { KeepAliveControls } from "@/components/keep-alive-controls";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -20,6 +22,7 @@ import {
 } from "@/components/ui/tooltip";
 import { copyText } from "@/lib/clipboard";
 import { isOff } from "@/lib/status";
+import { cn } from "@/lib/utils";
 import type { AppView } from "@/types";
 import { AppFavicon } from "@/components/app-favicon";
 import { StatusBadge } from "@/components/status-badge";
@@ -33,6 +36,8 @@ export interface AppCardReorder {
 export function AppCard({
   app,
   index,
+  category,
+  tintColor,
   busy,
   reorder,
   onToggle,
@@ -44,6 +49,8 @@ export function AppCard({
 }: {
   app: AppView;
   index: number;
+  category?: { name: string; color: string } | null;
+  tintColor?: string | null;
   busy: boolean;
   reorder?: AppCardReorder;
   onToggle: () => void;
@@ -66,7 +73,14 @@ export function AppCard({
   return (
     <article
       className="surface relative flex w-full flex-col gap-2 rounded-[14px] p-3 animate-rise"
-      style={{ animationDelay: `${index * 40}ms` }}
+      style={{
+        animationDelay: `${index * 40}ms`,
+        ...(tintColor
+          ? {
+              boxShadow: `0 0 0 1.5px color-mix(in srgb, ${tintColor} 45%, transparent), inset 0 0.5px 0 var(--highlight), 0 10px 28px -18px var(--glass-shadow)`,
+            }
+          : null),
+      }}
     >
       <div className="flex items-start gap-2.5">
         {reorder ? (
@@ -94,8 +108,28 @@ export function AppCard({
           <h2 className="truncate text-[15px] leading-tight font-semibold tracking-tight">
             {app.name}
           </h2>
-          <div className="mt-1 flex">
+          <div className="mt-1 flex flex-wrap items-center gap-1">
             <StatusBadge status={app.status} />
+            {category ? (
+              <Badge
+                variant="ghost"
+                className={cn(
+                  "h-5 max-w-32 gap-1 rounded-full px-2 text-[11px] font-medium",
+                  !category.color && "bg-muted text-muted-foreground",
+                )}
+                style={
+                  category.color
+                    ? {
+                        backgroundColor: `color-mix(in srgb, ${category.color} 14%, transparent)`,
+                        color: `color-mix(in srgb, ${category.color} 80%, var(--foreground))`,
+                      }
+                    : undefined
+                }
+              >
+                <Tag />
+                <span className="truncate">{category.name}</span>
+              </Badge>
+            ) : null}
           </div>
         </div>
       </div>

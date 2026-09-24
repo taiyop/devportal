@@ -37,6 +37,7 @@ import {
   resolvedPortEnv,
   type AppInput,
   type BackendConfig,
+  type Category,
   type EnvVar,
   type PortMode,
 } from "@/types";
@@ -44,6 +45,7 @@ import {
 export function AppFormPage({
   mode,
   form,
+  categories,
   saving,
   error,
   pickingFolder,
@@ -56,6 +58,7 @@ export function AppFormPage({
 }: {
   mode: "create" | "edit";
   form: AppInput;
+  categories: Category[];
   saving: boolean;
   error: string | null;
   pickingFolder: boolean;
@@ -185,6 +188,33 @@ export function AppFormPage({
                     </FieldDescription>
                   )}
                 </Field>
+
+                {categories.length > 0 ? (
+                  <Field className="gap-1.5 px-4 py-3">
+                    <FieldLabel htmlFor="app-category">カテゴリ</FieldLabel>
+                    <select
+                      id="app-category"
+                      className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-[13px] transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+                      value={form.categoryId}
+                      onChange={(event) =>
+                        onFormChange({
+                          ...form,
+                          categoryId: event.target.value,
+                        })
+                      }
+                    >
+                      <option value="">未分類</option>
+                      {categories.map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </option>
+                      ))}
+                    </select>
+                    <FieldDescription>
+                      ボードではカテゴリごとにまとめて表示されます。
+                    </FieldDescription>
+                  </Field>
+                ) : null}
               </FieldGroup>
             </section>
 

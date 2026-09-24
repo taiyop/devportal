@@ -45,6 +45,7 @@ type AppEntry struct {
 	Name          string        `json:"name" yaml:"name"`
 	Description   string        `json:"description" yaml:"description"`
 	Hostname      string        `json:"hostname" yaml:"hostname"`
+	CategoryID    string        `json:"categoryId" yaml:"category,omitempty"`
 	Folder        string        `json:"folder" yaml:"folder"`
 	Command       string        `json:"command" yaml:"command"`
 	PortMode      PortMode      `json:"portMode" yaml:"portMode"`
@@ -61,6 +62,7 @@ type appEntryYAML struct {
 	Name           string        `yaml:"name"`
 	Description    string        `yaml:"description"`
 	Hostname       string        `yaml:"hostname"`
+	CategoryID     string        `yaml:"category"`
 	Folder         string        `yaml:"folder"`
 	Command        string        `yaml:"command"`
 	PortMode       PortMode      `yaml:"portMode"`
@@ -83,6 +85,7 @@ func (e *AppEntry) UnmarshalYAML(unmarshal func(any) error) error {
 	e.Name = raw.Name
 	e.Description = strings.TrimSpace(raw.Description)
 	e.Hostname = strings.ToLower(strings.TrimSpace(raw.Hostname))
+	e.CategoryID = strings.TrimSpace(raw.CategoryID)
 	e.Folder = raw.Folder
 	e.Command = raw.Command
 	e.PortMode = raw.PortMode
@@ -104,9 +107,16 @@ func (e *AppEntry) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
+type CategoryEntry struct {
+	ID    string `json:"id" yaml:"id"`
+	Name  string `json:"name" yaml:"name"`
+	Color string `json:"color" yaml:"color,omitempty"`
+}
+
 type ConfigFile struct {
-	GatewayPort *uint16    `json:"gatewayPort" yaml:"gatewayPort,omitempty"`
-	Apps        []AppEntry `json:"apps" yaml:"apps"`
+	GatewayPort *uint16         `json:"gatewayPort" yaml:"gatewayPort,omitempty"`
+	Categories  []CategoryEntry `json:"categories" yaml:"categories,omitempty"`
+	Apps        []AppEntry      `json:"apps" yaml:"apps"`
 }
 
 type AppInput struct {
@@ -114,6 +124,7 @@ type AppInput struct {
 	Name          string        `json:"name"`
 	Description   string        `json:"description"`
 	Hostname      string        `json:"hostname"`
+	CategoryID    string        `json:"categoryId"`
 	Folder        string        `json:"folder"`
 	Command       string        `json:"command"`
 	PortMode      PortMode      `json:"portMode"`
@@ -144,6 +155,7 @@ type AppView struct {
 	Name          string        `json:"name"`
 	Description   string        `json:"description"`
 	Hostname      string        `json:"hostname"`
+	CategoryID    string        `json:"categoryId"`
 	Folder        string        `json:"folder"`
 	Command       string        `json:"command"`
 	PortMode      PortMode      `json:"portMode"`
@@ -184,6 +196,7 @@ func viewFromEntry(entry AppEntry, status AppStatus, pid *uint32, livePort *uint
 		Name:          entry.Name,
 		Description:   entry.Description,
 		Hostname:      entry.Hostname,
+		CategoryID:    entry.CategoryID,
 		Folder:        entry.Folder,
 		Command:       entry.Command,
 		PortMode:      entry.PortMode,
