@@ -547,24 +547,27 @@ export default function App() {
     app: AppView,
     event: KeyboardEvent<HTMLButtonElement>,
   ) {
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    const backward = event.key === "ArrowUp" || event.key === "ArrowLeft";
+    const forward = event.key === "ArrowDown" || event.key === "ArrowRight";
+    if (!backward && !forward) return;
     event.preventDefault();
     const index = visibleApps.findIndex((item) => item.id === app.id);
-    const neighbor =
-      event.key === "ArrowUp"
-        ? visibleApps[index - 1]
-        : visibleApps[index + 1];
+    const neighbor = backward
+      ? visibleApps[index - 1]
+      : visibleApps[index + 1];
     if (!neighbor) return;
-    void commitOrder(
-      moveApp(apps, app.id, neighbor.id, event.key === "ArrowDown"),
-    );
+    void commitOrder(moveApp(apps, app.id, neighbor.id, forward));
   }
 
   function listDragOver(event: DragEvent<HTMLUListElement>) {
     event.preventDefault();
     if (!dragId) return;
     event.dataTransfer.dropEffect = "move";
-    const hint = dropTargetAt(event.currentTarget, event.clientY);
+    const hint = dropTargetAt(
+      event.currentTarget,
+      event.clientX,
+      event.clientY,
+    );
     const next = hint && hint.id !== dragId ? hint : null;
     setDropHint((current) =>
       current?.id === next?.id && current?.after === next?.after
@@ -576,7 +579,11 @@ export default function App() {
   function listDrop(event: DragEvent<HTMLUListElement>) {
     event.preventDefault();
     if (!dragId) return;
-    const hint = dropTargetAt(event.currentTarget, event.clientY);
+    const hint = dropTargetAt(
+      event.currentTarget,
+      event.clientX,
+      event.clientY,
+    );
     if (hint) {
       dropOn(hint.id, hint.after);
     } else {
@@ -849,10 +856,13 @@ export default function App() {
             {updateWaiting ? <UpdateBanner updater={updater} /> : null}
 
             {!ready ? (
-              <div className="mx-auto flex max-w-3xl flex-col gap-2">
-                <div className="surface h-20 animate-pulse rounded-[14px]" />
-                <div className="surface h-20 animate-pulse rounded-[14px]" />
-                <div className="surface h-20 animate-pulse rounded-[14px]" />
+              <div className="mx-auto grid w-full max-w-6xl grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
+                <div className="surface h-40 animate-pulse rounded-[14px]" />
+                <div className="surface h-40 animate-pulse rounded-[14px]" />
+                <div className="surface h-40 animate-pulse rounded-[14px]" />
+                <div className="surface h-40 animate-pulse rounded-[14px]" />
+                <div className="surface h-40 animate-pulse rounded-[14px]" />
+                <div className="surface h-40 animate-pulse rounded-[14px]" />
               </div>
             ) : apps.length === 0 && !bootError ? (
               <EmptyBoard
@@ -874,7 +884,7 @@ export default function App() {
               />
             ) : (
               <ul
-                className="mx-auto flex max-w-3xl list-none flex-col gap-2 p-0"
+                className="mx-auto grid w-full max-w-6xl list-none grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3 p-0"
                 onDragOver={listDragOver}
                 onDrop={listDrop}
                 onDragLeave={listDragLeave}
@@ -884,7 +894,7 @@ export default function App() {
                     key={app.id}
                     data-app-id={app.id}
                     className={cn(
-                      "relative",
+                      "relative flex min-w-0",
                       dragId === app.id && "opacity-45",
                     )}
                   >
@@ -892,8 +902,8 @@ export default function App() {
                       <div
                         aria-hidden="true"
                         className={cn(
-                          "pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded-full bg-primary",
-                          dropHint.after ? "-bottom-[5px]" : "-top-[5px]",
+                          "pointer-events-none absolute inset-y-0 z-10 w-0.5 rounded-full bg-primary",
+                          dropHint.after ? "-right-[7px]" : "-left-[7px]",
                         )}
                       />
                     ) : null}
@@ -1104,18 +1114,26 @@ function moveApp(
 
 function dropTargetAt(
   listEl: HTMLElement,
+  x: number,
   y: number,
 ): { id: string; after: boolean } | null {
+  const listWidth = listEl.getBoundingClientRect().width;
+  let lastId: string | null = null;
   for (const item of Array.from(listEl.children)) {
     const id = (item as HTMLElement).dataset.appId;
     if (!id) continue;
+    lastId = id;
     const rect = item.getBoundingClientRect();
-    if (y < rect.top + rect.height / 2) return { id, after: false };
-    if (y <= rect.bottom) return { id, after: true };
+    if (rect.width >= listWidth - 2) {
+      if (y < rect.top + rect.height / 2) return { id, after: false };
+      continue;
+    }
+    if (y < rect.top) return { id, after: false };
+    if (y <= rect.bottom && x < rect.left + rect.width / 2) {
+      return { id, after: false };
+    }
   }
-  const last = listEl.lastElementChild as HTMLElement | null;
-  const id = last?.dataset.appId;
-  return id ? { id, after: true } : null;
+  return lastId ? { id: lastId, after: true } : null;
 }
 
 function mergeApp(list: AppView[], next: AppView): AppView[] {
