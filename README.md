@@ -49,6 +49,8 @@ flowchart TD
   - 空いているポートを自動採番し、環境変数（`PORT` や `API_PORT`）経由でプロセスへ自動注入。
 - 🎨 **GUI 管理 & YAML 保存**
   - アプリの登録・編集・ログ閲覧・ファビコン表示をすべて直感的な GUI で行え、設定はシンプルな YAML に保存されます。
+- 🤖 **ローカル管理 API（AI エージェント連携）**
+  - `127.0.0.1` 限定の Bearer 認証付き REST API を内蔵。AI エージェントやスクリプトからアプリの登録・編集・起動・停止・ログ取得・Gateway 制御を GUI とリアルタイム同期しながら実行できます。
 - ⬆️ **アプリ内アップデート**
   - GitHub Releases を確認し、新しいバージョンがあればダッシュボードとメニューから更新を案内します。
 
@@ -170,6 +172,71 @@ apps:
         env:
           - name: DATABASE_URL
             value: postgres://127.0.0.1/app
+```
+
+---
+
+## ローカル管理 API（AI エージェント連携）
+
+DevPortal 起動中、`127.0.0.1:17341`（設定画面または `apps.yml` の `controlApiPort` で変更可能）でローカル管理 API が待ち受けます。Computer Use や手動操作なしで、AI エージェントやスクリプトからアプリの登録・編集・起動・停止・ログ閲覧・Gateway 制御を行え、変更は GUI にリアルタイム反映されます。
+
+### 接続情報と認証
+
+- **接続情報ファイル**: `~/Library/Application Support/devportal/api.json`（パーミッション `0600`、終了時に自動削除）
+- **トークンファイル**: `~/Library/Application Support/devportal/api-token`（パーミッション `0600`、初回自動生成・設定画面から再生成可能）
+- すべての `/api/v1/*` リクエストに `Authorization: Bearer <token>` ヘッダが必要です（ブラウザからのクロスオリジン `Origin` ヘッダや非ループバック `Host` ヘッダは拒否されます）。
+- 設定画面の **「エージェント用ガイドをコピー」** ボタンから、AI エージェントへそのまま渡せる接続案内をコピーできます。
+
+### 主なエンドポイント
+
+| メソッド | パス | 用途 |
+| --- | --- | --- |
+| `GET` | `/api/v1/health` | ヘルスチェック・バージョン・設定パス・Gateway/API 状態 |
+| `GET` | `/api/v1/schema` | AI エージェント向け自己記述スキーマ（エンドポイント・フィールド一覧） |
+| `GET` / `POST` | `/api/v1/apps` | アプリ一覧（`?hostname=`, `?categoryId=`, `?status=` 対応）/ 新規登録 |
+| `GET` / `PUT` / `PATCH` / `DELETE` | `/api/v1/apps/{id}` | アプリ取得 / 置換登録 / 部分更新 / 削除（`?force=true` で停止後削除） |
+| `PUT` | `/api/v1/apps/order` | アプリ並び替え（`{"ids": [...]}`） |
+| `POST` | `/api/v1/apps/{id}/start` | アプリ起動（任意ボディ `{"pinned": false}` で Idle Stop 有効のまま起動可） |
+| `POST` | `/api/v1/apps/{id}/stop` | アプリ停止 |
+| `POST` | `/api/v1/apps/{id}/restart` | アプリ再起動 |
+| `PUT` | `/api/v1/apps/{id}/pinned` | Keep alive 切替（`{"pinned": true\|false}`） |
+| `GET` | `/api/v1/apps/{id}/logs` | ログ取得（`?limit=50`, `?stream=stdout` 等） |
+| `GET` / `POST` | `/api/v1/categories` | カテゴリ一覧 / 新規作成 |
+| `GET` / `PUT` / `PATCH` / `DELETE` | `/api/v1/categories/{id}` | カテゴリ取得 / 更新 / 部分更新 / 削除 |
+| `PUT` | `/api/v1/categories/order` | カテゴリ並び替え |
+| `GET` / `POST` / `PUT` | `/api/v1/gateway`（`/start`, `/stop`, `/port`） | リバースプロキシ状態取得・開始・停止・ポート変更 |
+
+### `curl` 実行例
+
+```bash
+API_JSON="$HOME/Library/Application Support/devportal/api.json"
+API_URL=$(jq -r .url "$API_JSON")
+API_TOKEN=$(jq -r .token "$API_JSON")
+
+# 固定ポートのサービスを新規登録（portMode は "auto" または "manual"）
+curl -fsS -X POST "$API_URL/api/v1/apps" \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "agent2api-local",
+    "name": "agent2api",
+    "hostname": "agent2api",
+    "folder": "/Users/you/projects/agent2api",
+    "command": "/Users/you/projects/agent2api/start-agent2api.sh",
+    "portMode": "manual",
+    "port": 8080,
+    "wakeOnRequest": true,
+    "idleStopMin": 15
+  }'
+
+# 一部フィールドだけ部分更新（PATCH）
+curl -fsS -X PATCH "$API_URL/api/v1/apps/agent2api-local" \
+  -H "Authorization: Bearer $API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"idleStopMin": 20}'
+
+# API スキーマを確認（AI エージェントが自律的に仕様を取得可能）
+curl -fsS "$API_URL/api/v1/schema" -H "Authorization: Bearer $API_TOKEN"
 ```
 
 ---
