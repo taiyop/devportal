@@ -14,8 +14,11 @@ export {
 export type {
     AppInput,
     AppView,
+    AppsChangedEvent,
     BackendSpec,
+    CategoriesChangedEvent,
     CategoryEntry,
+    ControlAPIStatus,
     EnvVar,
     GatewayStatus,
     LogEvent

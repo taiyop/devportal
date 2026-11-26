@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -27,15 +28,40 @@ func NewPortalService(app *application.App, portal *Portal) *PortalService {
 	portal.EmitGateway = func(status GatewayStatus) {
 		app.Event.Emit("gateway-status", status)
 	}
+	portal.EmitAppsChanged = func(event AppsChangedEvent) {
+		app.Event.Emit("apps-changed", event)
+	}
+	portal.EmitCategoriesChanged = func(event CategoriesChangedEvent) {
+		app.Event.Emit("categories-changed", event)
+	}
+	portal.EmitControlAPI = func(status ControlAPIStatus) {
+		app.Event.Emit("control-api-status", status)
+	}
 	return s
 }
 
 func (s *PortalService) ServiceStartup(_ context.Context, _ application.ServiceOptions) error {
 	s.portal.startIdleWatcher()
+	if err := s.portal.StartControlAPI(); err != nil {
+		log.Printf("control api: %v", err)
+	}
 	pollCtx, cancel := context.WithCancel(context.Background())
 	s.stopPoll = cancel
 	go pollForUpdates(pollCtx, s.app)
 	return nil
+}
+
+func (s *PortalService) GetControlAPIStatus() ControlAPIStatus {
+	return s.portal.ControlAPIStatus()
+}
+
+func (s *PortalService) SetControlAPIPort(port uint16) (ControlAPIStatus, error) {
+	err := s.portal.SetControlAPIPort(port)
+	return s.portal.ControlAPIStatus(), err
+}
+
+func (s *PortalService) RotateControlAPIToken() (ControlAPIStatus, error) {
+	return s.portal.RotateControlAPIToken()
 }
 
 func (s *PortalService) StartGateway() (GatewayStatus, error) {

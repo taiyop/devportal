@@ -14,6 +14,9 @@ declare module "@wailsio/runtime" {
         interface CustomEvents {
             "app-log": main$0.LogEvent;
             "app-status": main$0.AppView;
+            "apps-changed": main$0.AppsChangedEvent;
+            "categories-changed": main$0.CategoriesChangedEvent;
+            "control-api-status": main$0.ControlAPIStatus;
             "gateway-status": main$0.GatewayStatus;
         }
     }

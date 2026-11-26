@@ -67,24 +67,35 @@ type Inner struct {
 }
 
 type Portal struct {
-	mu              sync.Mutex
-	inner           Inner
-	gatewayMu       sync.Mutex
-	gateway         *http.Server
-	gatewayLn       net.Listener
-	gatewayLn4      net.Listener
-	gatewayListen   string
-	gatewayPort     uint16
-	gatewayNote     string
-	gatewayErr      string
-	EmitStatus      func(AppView)
-	EmitLog         func(LogEvent)
-	EmitGateway     func(GatewayStatus)
-	shutdownOnce    sync.Once
-	startingMu      sync.Mutex
-	starting        map[string]struct{}
-	faviconMu       sync.Mutex
-	faviconInflight map[string]struct{}
+	mu                    sync.Mutex
+	inner                 Inner
+	gatewayMu             sync.Mutex
+	gateway               *http.Server
+	gatewayLn             net.Listener
+	gatewayLn4            net.Listener
+	gatewayListen         string
+	gatewayPort           uint16
+	gatewayNote           string
+	gatewayErr            string
+	controlMu             sync.Mutex
+	controlSrv            *http.Server
+	controlLn             net.Listener
+	controlPort           uint16
+	controlToken          string
+	controlNote           string
+	controlErr            string
+	controlInfoPath       string
+	EmitStatus            func(AppView)
+	EmitLog               func(LogEvent)
+	EmitGateway           func(GatewayStatus)
+	EmitAppsChanged       func(AppsChangedEvent)
+	EmitCategoriesChanged func(CategoriesChangedEvent)
+	EmitControlAPI        func(ControlAPIStatus)
+	shutdownOnce          sync.Once
+	startingMu            sync.Mutex
+	starting              map[string]struct{}
+	faviconMu             sync.Mutex
+	faviconInflight       map[string]struct{}
 }
 
 func LoadPortal() (*Portal, error) {
@@ -135,6 +146,28 @@ func (p *Portal) emitLog(event LogEvent) {
 	if p.EmitLog != nil {
 		p.EmitLog(event)
 	}
+}
+
+func (p *Portal) emitAppsChanged() {
+	if p.EmitAppsChanged != nil {
+		p.EmitAppsChanged(AppsChangedEvent{Apps: p.Views()})
+	}
+}
+
+func (p *Portal) emitCategoriesChanged() {
+	if p.EmitCategoriesChanged != nil {
+		p.EmitCategoriesChanged(CategoriesChangedEvent{Categories: p.Categories()})
+	}
+}
+
+func (p *Portal) ViewByID(id string) (AppView, error) {
+	inner := p.lock()
+	defer p.unlock()
+	entry, err := findEntry(inner, id)
+	if err != nil {
+		return AppView{}, err
+	}
+	return viewFor(inner, entry), nil
 }
 
 func (p *Portal) Views() []AppView {
@@ -230,7 +263,14 @@ func upsert(inner *Inner, input AppInput) (AppEntry, error) {
 	if command == "" {
 		return AppEntry{}, errString("起動コマンドを入力してください")
 	}
-	if input.PortMode == PortModeManual {
+	portMode := input.PortMode
+	if portMode == "" {
+		portMode = PortModeAuto
+	}
+	if portMode != PortModeAuto && portMode != PortModeManual {
+		return AppEntry{}, errString("ポート割り当ては auto または manual を指定してください")
+	}
+	if portMode == PortModeManual {
 		if input.Port == nil || *input.Port == 0 {
 			return AppEntry{}, errString("手動モードでは 1〜65535 のポート番号が必要です")
 		}
@@ -287,7 +327,7 @@ func upsert(inner *Inner, input AppInput) (AppEntry, error) {
 		CategoryID:    categoryID,
 		Folder:        folder,
 		Command:       command,
-		PortMode:      input.PortMode,
+		PortMode:      portMode,
 		Port:          input.Port,
 		PortEnv:       portEnv,
 		WakeOnRequest: input.wakeOnRequest(),
@@ -331,8 +371,8 @@ func upsert(inner *Inner, input AppInput) (AppEntry, error) {
 
 func (p *Portal) Delete(id string) error {
 	inner := p.lock()
-	defer p.unlock()
 	if _, ok := inner.runtime[id]; ok {
+		p.unlock()
 		return errString("実行中のアプリは削除できません。先に終了してください。")
 	}
 	before := len(inner.file.Apps)
@@ -344,18 +384,24 @@ func (p *Portal) Delete(id string) error {
 	}
 	inner.file.Apps = next
 	if len(inner.file.Apps) == before {
+		p.unlock()
 		return errString("アプリが見つかりません")
 	}
 	delete(inner.logs, id)
 	delete(inner.errors, id)
 	delete(inner.favicons, id)
 	removeFaviconFile(inner.configPath, id)
-	return saveConfig(inner.configPath, inner.file)
+	err := saveConfig(inner.configPath, inner.file)
+	p.unlock()
+	if err != nil {
+		return err
+	}
+	p.emitAppsChanged()
+	return nil
 }
 
 func (p *Portal) Reorder(ids []string) ([]AppView, error) {
 	inner := p.lock()
-	defer p.unlock()
 	byID := make(map[string]AppEntry, len(inner.file.Apps))
 	for _, app := range inner.file.Apps {
 		byID[app.ID] = app
@@ -379,12 +425,15 @@ func (p *Portal) Reorder(ids []string) ([]AppView, error) {
 	}
 	inner.file.Apps = next
 	if err := saveConfig(inner.configPath, inner.file); err != nil {
+		p.unlock()
 		return nil, err
 	}
 	out := make([]AppView, 0, len(next))
 	for _, entry := range next {
 		out = append(out, viewFor(inner, entry))
 	}
+	p.unlock()
+	p.emitAppsChanged()
 	return out, nil
 }
 

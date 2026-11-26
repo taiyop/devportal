@@ -17,6 +17,9 @@ func init() {
 	application.RegisterEvent[AppView]("app-status")
 	application.RegisterEvent[LogEvent]("app-log")
 	application.RegisterEvent[GatewayStatus]("gateway-status")
+	application.RegisterEvent[AppsChangedEvent]("apps-changed")
+	application.RegisterEvent[CategoriesChangedEvent]("categories-changed")
+	application.RegisterEvent[ControlAPIStatus]("control-api-status")
 }
 
 func main() {

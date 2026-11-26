@@ -32,6 +32,7 @@ func (p *Portal) shutdownAll(w io.Writer) {
 	if w == nil {
 		w = io.Discard
 	}
+	p.StopControlAPI()
 	gw := p.GatewayStatus()
 	if gw.Running {
 		shutdownLog(w, "リバースプロキシ %s を停止します。", gw.Addr)

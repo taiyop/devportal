@@ -56,6 +56,10 @@ export interface AppView {
     "error": string | null;
 }
 
+export interface AppsChangedEvent {
+    "apps": AppView[] | null;
+}
+
 export interface BackendSpec {
     "name": string;
     "folder": string;
@@ -67,10 +71,25 @@ export interface BackendSpec {
     "env": EnvVar[] | null;
 }
 
+export interface CategoriesChangedEvent {
+    "categories": CategoryEntry[] | null;
+}
+
 export interface CategoryEntry {
     "id": string;
     "name": string;
     "color": string;
+}
+
+export interface ControlAPIStatus {
+    "url": string;
+    "port": number;
+    "preferredPort": number;
+    "running": boolean;
+    "token": string;
+    "infoPath": string;
+    "error": string;
+    "note": string;
 }
 
 export interface EnvVar {

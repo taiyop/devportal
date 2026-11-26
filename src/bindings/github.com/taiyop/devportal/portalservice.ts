@@ -29,6 +29,10 @@ export function GetConfigPath(): $CancellablePromise<string> {
     return $Call.ByID(1089872012);
 }
 
+export function GetControlAPIStatus(): $CancellablePromise<$models.ControlAPIStatus> {
+    return $Call.ByID(1140812904);
+}
+
 export function GetGatewayStatus(): $CancellablePromise<$models.GatewayStatus> {
     return $Call.ByID(1984671839);
 }
@@ -67,6 +71,14 @@ export function ReorderCategories(ids: string[] | null): $CancellablePromise<$mo
 
 export function RestartToUpdate(): $CancellablePromise<void> {
     return $Call.ByID(2920253082);
+}
+
+export function RotateControlAPIToken(): $CancellablePromise<$models.ControlAPIStatus> {
+    return $Call.ByID(1186475704);
+}
+
+export function SetControlAPIPort(port: number): $CancellablePromise<$models.ControlAPIStatus> {
+    return $Call.ByID(215510069, port);
 }
 
 export function SetGatewayPort(port: number): $CancellablePromise<$models.GatewayStatus> {

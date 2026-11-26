@@ -28,17 +28,19 @@ func (p *Portal) Categories() []CategoryEntry {
 
 func (p *Portal) UpsertCategory(id string, name string, color string) (CategoryEntry, error) {
 	inner := p.lock()
-	defer p.unlock()
 	name = strings.TrimSpace(name)
 	if name == "" {
+		p.unlock()
 		return CategoryEntry{}, errString("カテゴリ名を入力してください")
 	}
 	color = strings.ToLower(strings.TrimSpace(color))
 	if color != "" && !categoryColorPattern.MatchString(color) {
+		p.unlock()
 		return CategoryEntry{}, errString("カテゴリの色は #rrggbb 形式で指定してください")
 	}
 	for _, cat := range inner.file.Categories {
 		if cat.ID != id && strings.EqualFold(cat.Name, name) {
+			p.unlock()
 			return CategoryEntry{}, errString("同じ名前のカテゴリがあります: " + name)
 		}
 	}
@@ -58,8 +60,11 @@ func (p *Portal) UpsertCategory(id string, name string, color string) (CategoryE
 		inner.file.Categories = append(inner.file.Categories, entry)
 	}
 	if err := saveConfig(inner.configPath, inner.file); err != nil {
+		p.unlock()
 		return CategoryEntry{}, err
 	}
+	p.unlock()
+	p.emitCategoriesChanged()
 	return entry, nil
 }
 
@@ -89,6 +94,7 @@ func (p *Portal) DeleteCategory(id string) error {
 	if err != nil {
 		return err
 	}
+	p.emitCategoriesChanged()
 	for _, appID := range affected {
 		p.emitView(appID)
 	}
@@ -97,7 +103,6 @@ func (p *Portal) DeleteCategory(id string) error {
 
 func (p *Portal) ReorderCategories(ids []string) ([]CategoryEntry, error) {
 	inner := p.lock()
-	defer p.unlock()
 	byID := make(map[string]CategoryEntry, len(inner.file.Categories))
 	for _, cat := range inner.file.Categories {
 		byID[cat.ID] = cat
@@ -121,7 +126,12 @@ func (p *Portal) ReorderCategories(ids []string) ([]CategoryEntry, error) {
 	}
 	inner.file.Categories = next
 	if err := saveConfig(inner.configPath, inner.file); err != nil {
+		p.unlock()
 		return nil, err
 	}
-	return next, nil
+	out := make([]CategoryEntry, len(next))
+	copy(out, next)
+	p.unlock()
+	p.emitCategoriesChanged()
+	return out, nil
 }

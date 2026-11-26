@@ -114,9 +114,18 @@ type CategoryEntry struct {
 }
 
 type ConfigFile struct {
-	GatewayPort *uint16         `json:"gatewayPort" yaml:"gatewayPort,omitempty"`
-	Categories  []CategoryEntry `json:"categories" yaml:"categories,omitempty"`
-	Apps        []AppEntry      `json:"apps" yaml:"apps"`
+	GatewayPort    *uint16         `json:"gatewayPort" yaml:"gatewayPort,omitempty"`
+	ControlAPIPort *uint16         `json:"controlApiPort" yaml:"controlApiPort,omitempty"`
+	Categories     []CategoryEntry `json:"categories" yaml:"categories,omitempty"`
+	Apps           []AppEntry      `json:"apps" yaml:"apps"`
+}
+
+type AppsChangedEvent struct {
+	Apps []AppView `json:"apps"`
+}
+
+type CategoriesChangedEvent struct {
+	Categories []CategoryEntry `json:"categories"`
 }
 
 type AppInput struct {
