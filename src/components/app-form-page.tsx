@@ -1,5 +1,7 @@
-import { FormEvent, useEffect, useRef } from "react";
-import { ChevronLeft, FolderOpen, Plus, Trash2 } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Bot, Check, ChevronLeft, Copy, FolderOpen, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import type { ControlAPIStatus } from "@/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +30,8 @@ import {
 } from "@/components/ui/input-group";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Spinner } from "@/components/ui/spinner";
+import { buildRegisterProjectPrompt } from "@/lib/agent-prompt";
+import { copyText } from "@/lib/clipboard";
 import { isHostnameError } from "@/lib/hostname";
 import {
   DEFAULT_PORT_ENV,
@@ -46,6 +50,7 @@ export function AppFormPage({
   mode,
   form,
   categories,
+  controlApi,
   saving,
   error,
   pickingFolder,
@@ -59,6 +64,7 @@ export function AppFormPage({
   mode: "create" | "edit";
   form: AppInput;
   categories: Category[];
+  controlApi: ControlAPIStatus;
   saving: boolean;
   error: string | null;
   pickingFolder: boolean;
@@ -71,13 +77,34 @@ export function AppFormPage({
 }) {
   const editing = mode === "edit";
   const errorRef = useRef<HTMLDivElement>(null);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
   const hostnameInvalid = Boolean(error && isHostnameError(error));
   const title = editing ? "アプリを編集" : "アプリを登録";
+  const agentPrompt = useMemo(
+    () => buildRegisterProjectPrompt(controlApi),
+    [controlApi],
+  );
 
   useEffect(() => {
     if (!error) return;
     errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [error]);
+
+  useEffect(() => {
+    if (!copiedPrompt) return;
+    const timer = window.setTimeout(() => setCopiedPrompt(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, [copiedPrompt]);
+
+  async function copyAgentPrompt() {
+    const ok = await copyText(agentPrompt);
+    if (ok) {
+      setCopiedPrompt(true);
+      toast.success("AI エージェント向け指示文をコピーしました");
+    } else {
+      toast.error("コピーできませんでした");
+    }
+  }
 
   return (
     <>
@@ -127,6 +154,43 @@ export function AppFormPage({
                 <AlertTitle>保存できません</AlertTitle>
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
+            )}
+
+            {!editing && (
+              <section className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2 px-1">
+                  <div className="flex items-center gap-1.5">
+                    <Bot className="size-3.5 text-muted-foreground" />
+                    <h2 className="text-[13px] font-semibold">
+                      AI エージェントで登録する
+                    </h2>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void copyAgentPrompt()}
+                  >
+                    {copiedPrompt ? (
+                      <Check data-icon="inline-start" />
+                    ) : (
+                      <Copy data-icon="inline-start" />
+                    )}
+                    {copiedPrompt ? "コピーしました" : "指示文をコピー"}
+                  </Button>
+                </div>
+                <div className="surface settings-group overflow-hidden rounded-[12px]">
+                  <div className="flex flex-col gap-2 px-4 py-3">
+                    <p className="text-[12px] leading-5 text-muted-foreground">
+                      新規プロジェクトのディレクトリで動かしている AI エージェント（Claude
+                      Code / Codex / Cursor 等）に下の指示文を渡すと、ローカル管理 API 経由でそのまま登録できます。
+                    </p>
+                    <pre className="max-h-56 overflow-y-auto rounded-lg border border-border/70 bg-muted/50 px-3 py-2.5 font-mono text-[11px] leading-5 whitespace-pre-wrap break-words text-foreground select-all">
+                      {agentPrompt}
+                    </pre>
+                  </div>
+                </div>
+              </section>
             )}
 
             <section className="flex flex-col gap-2">

@@ -1,5 +1,17 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ArrowDownToLine, FolderOpen, RotateCw } from "lucide-react";
+import {
+  ArrowDownToLine,
+  Bot,
+  Copy,
+  Eye,
+  EyeOff,
+  FolderOpen,
+  RefreshCw,
+  RotateCw,
+} from "lucide-react";
+import { toast } from "sonner";
+import type { ControlAPIStatus } from "@/api";
+import { StatusLed } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,7 +29,10 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { copyText } from "@/lib/clipboard";
+import { buildAgentGuidePrompt } from "@/lib/agent-prompt";
 import { formatVersionLabel, type AppUpdater } from "@/lib/updater";
+import type { AppStatus } from "@/types";
 
 export function SettingsDialog({
   open,
@@ -25,33 +40,49 @@ export function SettingsDialog({
   gatewayPort,
   gatewayRunning,
   savingPort,
+  controlApi,
+  savingControlApiPort,
+  rotatingControlApiToken,
   updater,
   onOpenChange,
   onRevealConfig,
   onSaveGatewayPort,
+  onSaveControlApiPort,
+  onRotateControlApiToken,
 }: {
   open: boolean;
   configPath: string;
   gatewayPort: number;
   gatewayRunning: boolean;
   savingPort: boolean;
+  controlApi: ControlAPIStatus;
+  savingControlApiPort: boolean;
+  rotatingControlApiToken: boolean;
   updater: AppUpdater;
   onOpenChange: (open: boolean) => void;
   onRevealConfig: () => void;
   onSaveGatewayPort: (port: number) => void;
+  onSaveControlApiPort: (port: number) => void;
+  onRotateControlApiToken: () => void;
 }) {
   const [draft, setDraft] = useState("80");
   const [portError, setPortError] = useState<string | null>(null);
+  const [apiPortDraft, setApiPortDraft] = useState("17341");
+  const [apiPortError, setApiPortError] = useState<string | null>(null);
+  const [showToken, setShowToken] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setDraft(String(gatewayPort || 80));
     setPortError(null);
-  }, [open, gatewayPort]);
+    setApiPortDraft(String(controlApi.preferredPort || 17341));
+    setApiPortError(null);
+    setShowToken(false);
+  }, [open, gatewayPort, controlApi.preferredPort]);
 
   function submitPort(event: FormEvent) {
     event.preventDefault();
-    const parsed = parseGatewayPort(draft);
+    const parsed = parsePort(draft, 80);
     if (parsed.error) {
       setPortError(parsed.error);
       return;
@@ -61,6 +92,33 @@ export function SettingsDialog({
     onSaveGatewayPort(parsed.port);
   }
 
+  function submitApiPort(event: FormEvent) {
+    event.preventDefault();
+    const parsed = parsePort(apiPortDraft, 17341);
+    if (parsed.error) {
+      setApiPortError(parsed.error);
+      return;
+    }
+    setApiPortError(null);
+    setApiPortDraft(String(parsed.port));
+    onSaveControlApiPort(parsed.port);
+  }
+
+  async function copy(value: string, okMessage: string) {
+    const ok = await copyText(value);
+    toast[ok ? "success" : "error"](ok ? okMessage : "コピーできませんでした");
+  }
+
+  const apiLedStatus: AppStatus = controlApi.running
+    ? "running"
+    : controlApi.error
+      ? "error"
+      : "stopped";
+
+  const maskedToken = controlApi.token
+    ? `${controlApi.token.slice(0, 7)}••••••••••••••••••••••••`
+    : "—";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[calc(100dvh-1.5rem)] w-[calc(100%-1.5rem)] max-w-md flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
@@ -69,7 +127,7 @@ export function SettingsDialog({
             設定
           </DialogTitle>
           <DialogDescription className="text-[12px]">
-            リバースプロキシ、アップデート、設定ファイルの場所です。
+            リバースプロキシ、ローカル API、アップデート、設定ファイルの場所です。
           </DialogDescription>
         </DialogHeader>
 
@@ -113,6 +171,145 @@ export function SettingsDialog({
                 </Field>
               </FieldGroup>
             </form>
+          </section>
+
+          <section className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 px-1">
+              <h2 className="text-[13px] font-semibold">ローカル API（AI エージェント）</h2>
+              <StatusLed status={apiLedStatus} />
+            </div>
+            <FieldGroup className="surface settings-group gap-0 p-0">
+              <Field className="gap-1.5 px-4 py-3">
+                <FieldLabel>エンドポイント</FieldLabel>
+                <div className="flex items-center gap-1.5">
+                  <p className="min-w-0 flex-1 truncate font-mono text-[12px]">
+                    {controlApi.url}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="エンドポイント URL をコピー"
+                    disabled={!controlApi.url}
+                    onClick={() =>
+                      void copy(controlApi.url, "API URL をコピーしました")
+                    }
+                  >
+                    <Copy />
+                  </Button>
+                </div>
+                <FieldDescription>
+                  {controlApi.error
+                    ? controlApi.error
+                    : controlApi.note ||
+                      "127.0.0.1 限定。アプリの登録・編集・起動・停止を REST API から操作できます。"}
+                </FieldDescription>
+              </Field>
+
+              <form onSubmit={submitApiPort}>
+                <Field className="gap-1.5 px-4 py-3" data-invalid={!!apiPortError}>
+                  <FieldLabel htmlFor="control-api-port">ポート</FieldLabel>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="control-api-port"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="17341"
+                      className="font-mono"
+                      value={apiPortDraft}
+                      aria-invalid={!!apiPortError}
+                      autoComplete="off"
+                      onChange={(event) => {
+                        setApiPortDraft(event.target.value);
+                        setApiPortError(null);
+                      }}
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={savingControlApiPort}
+                    >
+                      {savingControlApiPort ? <Spinner /> : null}
+                      保存
+                    </Button>
+                  </div>
+                  {apiPortError ? (
+                    <FieldError>{apiPortError}</FieldError>
+                  ) : (
+                    <FieldDescription>
+                      未入力なら 17341 です。変更するとローカル API を再起動します。
+                    </FieldDescription>
+                  )}
+                </Field>
+              </form>
+
+              <Field className="gap-1.5 px-4 py-3">
+                <FieldLabel>Bearer トークン</FieldLabel>
+                <div className="flex items-center gap-1">
+                  <p className="min-w-0 flex-1 font-mono text-[12px] break-all text-muted-foreground">
+                    {showToken ? controlApi.token || "—" : maskedToken}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={showToken ? "トークンを隠す" : "トークンを表示"}
+                    disabled={!controlApi.token}
+                    onClick={() => setShowToken((v) => !v)}
+                  >
+                    {showToken ? <EyeOff /> : <Eye />}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="トークンをコピー"
+                    disabled={!controlApi.token}
+                    onClick={() =>
+                      void copy(controlApi.token, "API トークンをコピーしました")
+                    }
+                  >
+                    <Copy />
+                  </Button>
+                </div>
+                {controlApi.infoPath ? (
+                  <p className="font-mono text-[11px] leading-4 break-all text-muted-foreground">
+                    接続情報: {controlApi.infoPath}
+                  </p>
+                ) : null}
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!controlApi.url}
+                    onClick={() =>
+                      void copy(
+                        buildAgentGuidePrompt(controlApi),
+                        "AI エージェント向けガイドをコピーしました",
+                      )
+                    }
+                  >
+                    <Bot data-icon="inline-start" />
+                    エージェント用ガイドをコピー
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={rotatingControlApiToken}
+                    onClick={onRotateControlApiToken}
+                  >
+                    {rotatingControlApiToken ? (
+                      <Spinner />
+                    ) : (
+                      <RefreshCw data-icon="inline-start" />
+                    )}
+                    トークンを再生成
+                  </Button>
+                </div>
+              </Field>
+            </FieldGroup>
           </section>
 
           <section className="flex flex-col gap-2">
@@ -212,10 +409,13 @@ function updateCopy(updater: AppUpdater): string {
   }
 }
 
-function parseGatewayPort(raw: string): { port: number; error: string | null } {
+function parsePort(
+  raw: string,
+  fallback: number,
+): { port: number; error: string | null } {
   const trimmed = raw.trim();
   if (trimmed === "") {
-    return { port: 80, error: null };
+    return { port: fallback, error: null };
   }
   if (!/^\d+$/.test(trimmed)) {
     return { port: 0, error: "1 から 65535 の番号を入力してください" };

@@ -4,7 +4,10 @@ import type { AppInput, AppView, Category, LogEvent } from "./types";
 import type {
   AppInput as BoundAppInput,
   AppView as BoundAppView,
+  AppsChangedEvent as BoundAppsChangedEvent,
+  CategoriesChangedEvent as BoundCategoriesChangedEvent,
   CategoryEntry as BoundCategoryEntry,
+  ControlAPIStatus as BoundControlAPIStatus,
   GatewayStatus as BoundGatewayStatus,
   LogEvent as BoundLogEvent,
 } from "./bindings/github.com/taiyop/devportal";
@@ -148,6 +151,95 @@ export function onAppStatus(handler: (app: AppView) => void): () => void {
   } catch {
     return () => {};
   }
+}
+
+export function onAppsChanged(handler: (apps: AppView[]) => void): () => void {
+  try {
+    return Events.On("apps-changed", (event: { data: BoundAppsChangedEvent }) =>
+      handler((event.data?.apps ?? []).map(asAppView)),
+    );
+  } catch {
+    return () => {};
+  }
+}
+
+export function onCategoriesChanged(
+  handler: (categories: Category[]) => void,
+): () => void {
+  try {
+    return Events.On(
+      "categories-changed",
+      (event: { data: BoundCategoriesChangedEvent }) =>
+        handler((event.data?.categories ?? []).map(asCategory)),
+    );
+  } catch {
+    return () => {};
+  }
+}
+
+export interface ControlAPIStatus {
+  url: string;
+  port: number;
+  preferredPort: number;
+  running: boolean;
+  token: string;
+  infoPath: string;
+  error: string;
+  note: string;
+}
+
+export const idleControlAPI = (): ControlAPIStatus => ({
+  url: "http://127.0.0.1:17341",
+  port: 17341,
+  preferredPort: 17341,
+  running: false,
+  token: "",
+  infoPath: "",
+  error: "",
+  note: "",
+});
+
+export async function getControlAPIStatus(): Promise<ControlAPIStatus> {
+  return asControlAPIStatus(await PortalService.GetControlAPIStatus());
+}
+
+export async function setControlAPIPort(port: number): Promise<ControlAPIStatus> {
+  return asControlAPIStatus(await PortalService.SetControlAPIPort(port));
+}
+
+export async function rotateControlAPIToken(): Promise<ControlAPIStatus> {
+  return asControlAPIStatus(await PortalService.RotateControlAPIToken());
+}
+
+export function onControlAPIStatus(
+  handler: (status: ControlAPIStatus) => void,
+): () => void {
+  try {
+    return Events.On(
+      "control-api-status",
+      (event: { data: BoundControlAPIStatus }) =>
+        handler(asControlAPIStatus(event.data)),
+    );
+  } catch {
+    return () => {};
+  }
+}
+
+function asControlAPIStatus(
+  status: BoundControlAPIStatus | ControlAPIStatus,
+): ControlAPIStatus {
+  const preferredPort = Number(status.preferredPort) || 17341;
+  const port = Number(status.port) || preferredPort;
+  return {
+    url: status.url || `http://127.0.0.1:${port}`,
+    port,
+    preferredPort,
+    running: Boolean(status.running),
+    token: status.token ?? "",
+    infoPath: status.infoPath ?? "",
+    error: status.error ?? "",
+    note: status.note ?? "",
+  };
 }
 
 export interface GatewayStatus {

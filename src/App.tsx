@@ -24,8 +24,10 @@ import {
   deleteApp,
   deleteCategory,
   getConfigPath,
+  getControlAPIStatus,
   getGatewayStatus,
   getLogs,
+  idleControlAPI,
   idleGateway,
   isBrowserPreview,
   isWails,
@@ -33,12 +35,17 @@ import {
   listCategories,
   onAppLog,
   onAppStatus,
+  onAppsChanged,
+  onCategoriesChanged,
+  onControlAPIStatus,
   onGatewayStatus,
   openAppUrl,
   openConfigPath,
   pickFolder,
   reorderApps,
   reorderCategories,
+  rotateControlAPIToken,
+  setControlAPIPort,
   setGatewayPort,
   setPinned,
   startApp,
@@ -47,6 +54,7 @@ import {
   stopGateway,
   upsertApp,
   upsertCategory,
+  type ControlAPIStatus,
   type GatewayStatus,
 } from "./api";
 import { AppCard } from "@/components/app-card";
@@ -127,8 +135,13 @@ export default function App() {
   } | null>(null);
   const [gateway, setGateway] = useState<GatewayStatus>(() => idleGateway());
   const [gatewayBusy, setGatewayBusy] = useState(false);
+  const [controlApi, setControlApi] = useState<ControlAPIStatus>(() =>
+    idleControlAPI(),
+  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingGatewayPort, setSavingGatewayPort] = useState(false);
+  const [savingControlApiPort, setSavingControlApiPort] = useState(false);
+  const [rotatingControlApiToken, setRotatingControlApiToken] = useState(false);
   const updater = useAppUpdater(preview);
   const formSeed = useRef<string | null>(null);
   const pendingCategoryScroll = useRef<string | null>(null);
@@ -156,6 +169,16 @@ export default function App() {
         error: "",
         note: "",
       });
+      setControlApi({
+        url: "http://127.0.0.1:17341",
+        port: 17341,
+        preferredPort: 17341,
+        running: true,
+        token: "dp_preview_0123456789abcdef0123456789abcdef",
+        infoPath: "/Users/you/Library/Application Support/devportal/api.json",
+        error: "",
+        note: "",
+      });
       setReady(true);
       setBootError(null);
       return;
@@ -163,18 +186,20 @@ export default function App() {
 
     (async () => {
       try {
-        const [nextApps, path, nextGateway, nextCategories] =
+        const [nextApps, path, nextGateway, nextCategories, nextControlApi] =
           await Promise.all([
             listApps(),
             getConfigPath(),
             getGatewayStatus(),
             listCategories(),
+            getControlAPIStatus(),
           ]);
         if (cancelled) return;
         setApps(nextApps);
         setConfigPath(path);
         setGateway(nextGateway);
         setCategories(nextCategories);
+        setControlApi(nextControlApi);
       } catch (error) {
         if (!cancelled) {
           setBootError(
@@ -191,6 +216,12 @@ export default function App() {
     const unlistenStatus = onAppStatus((app) => {
       setApps((current) => mergeApp(current, app));
     });
+    const unlistenAppsChanged = onAppsChanged((nextApps) => {
+      setApps(nextApps);
+    });
+    const unlistenCategoriesChanged = onCategoriesChanged((nextCategories) => {
+      setCategories(nextCategories);
+    });
     const unlistenLog = onAppLog((event) => {
       setLogs((current) => {
         const lines = [...(current[event.id] ?? []), event];
@@ -200,12 +231,18 @@ export default function App() {
     const unlistenGateway = onGatewayStatus((status) => {
       setGateway(status);
     });
+    const unlistenControlApi = onControlAPIStatus((status) => {
+      setControlApi(status);
+    });
 
     return () => {
       cancelled = true;
       unlistenStatus();
+      unlistenAppsChanged();
+      unlistenCategoriesChanged();
       unlistenLog();
       unlistenGateway();
+      unlistenControlApi();
     };
   }, [preview]);
 
@@ -898,6 +935,63 @@ export default function App() {
     }
   }
 
+  async function saveControlApiPort(port: number) {
+    if (savingControlApiPort) return;
+    if (preview) {
+      setControlApi((current) => ({
+        ...current,
+        preferredPort: port,
+        port,
+        url: `http://127.0.0.1:${port}`,
+        note: "",
+        error: "",
+      }));
+      toast.success("ローカル API のポートを保存しました");
+      return;
+    }
+    setSavingControlApiPort(true);
+    try {
+      const status = await setControlAPIPort(port);
+      setControlApi(status);
+      toast.success(
+        status.running && status.port !== status.preferredPort
+          ? `ポート ${status.preferredPort} は使えなかったため、127.0.0.1:${status.port} で待ち受けています`
+          : "ローカル API のポートを保存しました",
+      );
+    } catch (error) {
+      toast.error(asError(error) || "ローカル API のポートを保存できませんでした");
+      try {
+        setControlApi(await getControlAPIStatus());
+      } catch {
+        // keep current
+      }
+    } finally {
+      setSavingControlApiPort(false);
+    }
+  }
+
+  async function rotateApiToken() {
+    if (rotatingControlApiToken) return;
+    if (preview) {
+      setControlApi((current) => ({
+        ...current,
+        token: `dp_preview_${Date.now().toString(16)}`,
+      }));
+      toast.success("API トークンを再生成しました");
+      return;
+    }
+    setRotatingControlApiToken(true);
+    try {
+      const status = await rotateControlAPIToken();
+      setControlApi(status);
+      toast.success("API トークンを再生成しました");
+    } catch (error) {
+      toast.error(asError(error) || "API トークンを再生成できませんでした");
+    } finally {
+      setRotatingControlApiToken(false);
+    }
+  }
+
   async function toggleGateway(nextRunning: boolean) {
     if (gatewayBusy) return;
     if (preview) {
@@ -1105,10 +1199,15 @@ export default function App() {
             gatewayPort={gateway.preferredPort || 80}
             gatewayRunning={gateway.running}
             savingPort={savingGatewayPort}
+            controlApi={controlApi}
+            savingControlApiPort={savingControlApiPort}
+            rotatingControlApiToken={rotatingControlApiToken}
             updater={updater}
             onOpenChange={setSettingsOpen}
             onRevealConfig={() => void revealConfig()}
             onSaveGatewayPort={(port) => void saveGatewayPort(port)}
+            onSaveControlApiPort={(port) => void saveControlApiPort(port)}
+            onRotateControlApiToken={() => void rotateApiToken()}
           />
           {route.page === "board" && (
             <>
@@ -1329,6 +1428,7 @@ export default function App() {
           mode={route.page === "edit" ? "edit" : "create"}
           form={form}
           categories={categories}
+          controlApi={controlApi}
           saving={saving}
           error={formError}
           pickingFolder={pickingFolder}
