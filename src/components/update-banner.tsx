@@ -5,6 +5,7 @@ import {
   formatBytes,
   formatRate,
   formatVersionLabel,
+  isPrereleaseRelease,
   type AppUpdater,
 } from "@/lib/updater";
 
@@ -149,7 +150,11 @@ function subcopy(updater: AppUpdater, size: string): string {
   if (updater.stage === "verifying" || updater.stage === "installing") {
     return "署名とファイルの置き換え準備が終わるまで、このまま待ってください。";
   }
-  const bits = ["GitHub Releases の最新版です"];
+  const bits = [
+    isPrereleaseRelease(updater.release)
+      ? "GitHub Releases のベータ版（プレリリース）です"
+      : "GitHub Releases の最新版です",
+  ];
   if (size) bits.push(size);
   return bits.join(" · ");
 }

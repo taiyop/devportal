@@ -10,9 +10,11 @@ import {
   RotateCw,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { ControlAPIStatus } from "@/api";
+import type { ControlAPIStatus, UpdateChannel } from "@/api";
 import { StatusLed } from "@/components/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import {
   Dialog,
   DialogContent,
@@ -30,8 +32,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { copyText } from "@/lib/clipboard";
+import { asError } from "@/lib/error";
 import { buildAgentGuidePrompt } from "@/lib/agent-prompt";
-import { formatVersionLabel, type AppUpdater } from "@/lib/updater";
+import {
+  formatVersionLabel,
+  isPrereleaseVersion,
+  type AppUpdater,
+} from "@/lib/updater";
 import type { AppStatus } from "@/types";
 
 export function SettingsDialog({
@@ -107,6 +114,22 @@ export function SettingsDialog({
   async function copy(value: string, okMessage: string) {
     const ok = await copyText(value);
     toast[ok ? "success" : "error"](ok ? okMessage : "コピーできませんでした");
+  }
+
+  async function handleChannelChange(next: UpdateChannel) {
+    if (next === updater.channel || updater.savingChannel) return;
+    try {
+      await updater.setChannel(next);
+      toast.success(
+        next === "beta"
+          ? "アップデートチャンネルをベータ版に切り替えました"
+          : "アップデートチャンネルを安定版に切り替えました",
+      );
+    } catch (error) {
+      toast.error(
+        asError(error) || "アップデートチャンネルを変更できませんでした",
+      );
+    }
   }
 
   const apiLedStatus: AppStatus = controlApi.running
@@ -317,9 +340,16 @@ export function SettingsDialog({
             <FieldGroup className="surface settings-group gap-0 p-0">
               <Field className="gap-1.5 px-4 py-3">
                 <FieldLabel>バージョン</FieldLabel>
-                <p className="font-mono text-[13px] tabular-nums">
-                  {formatVersionLabel(updater.version) || "—"}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="font-mono text-[13px] tabular-nums">
+                    {formatVersionLabel(updater.version) || "—"}
+                  </p>
+                  {isPrereleaseVersion(updater.version) ? (
+                    <Badge variant="secondary" className="h-4 px-1.5 text-[10px]">
+                      Beta
+                    </Badge>
+                  ) : null}
+                </div>
                 <FieldDescription>{updateCopy(updater)}</FieldDescription>
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   {updater.stage === "ready" ? (
@@ -350,6 +380,45 @@ export function SettingsDialog({
                     </Button>
                   )}
                 </div>
+              </Field>
+
+              <Field className="gap-1.5 px-4 py-3">
+                <FieldLabel>アップデートチャンネル</FieldLabel>
+                <div className="flex items-center gap-2">
+                  <ButtonGroup
+                    aria-label="アップデートチャンネル"
+                    className="rounded-lg bg-muted p-0.5"
+                  >
+                    <Button
+                      type="button"
+                      variant={updater.channel === "stable" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-7 rounded-md px-2.5 text-[12px]"
+                      aria-pressed={updater.channel === "stable"}
+                      disabled={updater.savingChannel}
+                      onClick={() => void handleChannelChange("stable")}
+                    >
+                      安定版
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={updater.channel === "beta" ? "secondary" : "ghost"}
+                      size="sm"
+                      className="h-7 rounded-md px-2.5 text-[12px]"
+                      aria-pressed={updater.channel === "beta"}
+                      disabled={updater.savingChannel}
+                      onClick={() => void handleChannelChange("beta")}
+                    >
+                      ベータ版
+                    </Button>
+                  </ButtonGroup>
+                  {updater.savingChannel ? <Spinner /> : null}
+                </div>
+                <FieldDescription>
+                  {updater.channel === "beta"
+                    ? "プレリリース版（-beta など）も更新対象に含めます。安定版へ戻す場合は公式 DMG で上書きするか、次の安定版リリースをお待ちください。"
+                    : "安定版リリースのみを受け取ります。先行テストするときはベータ版に切り替えてください。"}
+                </FieldDescription>
               </Field>
             </FieldGroup>
           </section>

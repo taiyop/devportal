@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"runtime"
@@ -28,24 +29,96 @@ const (
 	updateInstallTimeout    = 15 * time.Minute
 )
 
-func configureUpdater(app *application.App) error {
+func (p *Portal) UpdateChannel() UpdateChannel {
+	if p == nil {
+		return UpdateChannelStable
+	}
+	inner := p.lock()
+	defer p.unlock()
+	return normalizeUpdateChannel(inner.file.UpdateChannel)
+}
+
+func (p *Portal) SetUpdateChannel(raw string) (UpdateChannel, error) {
+	next, err := parseUpdateChannel(raw)
+	if err != nil {
+		return "", err
+	}
+	inner := p.lock()
+	prev := inner.file.UpdateChannel
+	inner.file.UpdateChannel = next
+	if err := saveConfig(inner.configPath, inner.file); err != nil {
+		inner.file.UpdateChannel = prev
+		p.unlock()
+		return "", err
+	}
+	p.unlock()
+	return next, nil
+}
+
+type channelAwareProvider struct {
+	stable  updater.Provider
+	beta    updater.Provider
+	channel func() UpdateChannel
+}
+
+func (p *channelAwareProvider) Name() string {
+	return p.active().Name()
+}
+
+func (p *channelAwareProvider) Check(ctx context.Context, req updater.CheckRequest) (*updater.Release, error) {
+	return p.active().Check(ctx, req)
+}
+
+func (p *channelAwareProvider) Download(ctx context.Context, r *updater.Release, dst io.Writer, onProgress func(written, total int64)) error {
+	if r != nil && r.Channel == "prerelease" {
+		return p.beta.Download(ctx, r, dst, onProgress)
+	}
+	return p.active().Download(ctx, r, dst, onProgress)
+}
+
+func (p *channelAwareProvider) active() updater.Provider {
+	if p.channel != nil && p.channel() == UpdateChannelBeta {
+		return p.beta
+	}
+	return p.stable
+}
+
+func configureUpdater(app *application.App, portal *Portal) error {
 	token := firstNonEmpty(
 		os.Getenv("DEVPORTAL_GITHUB_TOKEN"),
 		os.Getenv("GITHUB_TOKEN"),
 		os.Getenv("GH_TOKEN"),
 	)
-	gh, err := github.New(github.Config{
+	stable, err := github.New(github.Config{
 		Repository:    updateRepository,
 		Token:         token,
+		Prerelease:    false,
 		ChecksumAsset: updateChecksumAsset,
 		AssetMatcher:  zipFirstMatcher,
 	})
 	if err != nil {
 		return err
 	}
+	beta, err := github.New(github.Config{
+		Repository:    updateRepository,
+		Token:         token,
+		Prerelease:    true,
+		ChecksumAsset: updateChecksumAsset,
+		AssetMatcher:  zipFirstMatcher,
+	})
+	if err != nil {
+		return err
+	}
+	provider := &channelAwareProvider{
+		stable: stable,
+		beta:   beta,
+		channel: func() UpdateChannel {
+			return portal.UpdateChannel()
+		},
+	}
 	return app.Updater.Init(updater.Config{
 		CurrentVersion: runningVersion(),
-		Providers:      []updater.Provider{gh},
+		Providers:      []updater.Provider{provider},
 		Window: &updater.BuiltinWindow{
 			CSS: updaterWindowCSS,
 			Options: updater.WindowOptions{

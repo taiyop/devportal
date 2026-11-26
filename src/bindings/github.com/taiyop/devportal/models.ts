@@ -121,3 +121,13 @@ export enum PortMode {
     PortModeAuto = "auto",
     PortModeManual = "manual",
 };
+
+export enum UpdateChannel {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    UpdateChannelStable = "stable",
+    UpdateChannelBeta = "beta",
+};

@@ -40,7 +40,7 @@ func main() {
 		},
 	})
 
-	if err := configureUpdater(app); err != nil {
+	if err := configureUpdater(app, portal); err != nil {
 		log.Fatal(err)
 	}
 	installApplicationMenu(app)

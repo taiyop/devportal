@@ -41,6 +41,10 @@ export function GetLogs(id: string): $CancellablePromise<$models.LogEvent[] | nu
     return $Call.ByID(3985295442, id);
 }
 
+export function GetUpdateChannel(): $CancellablePromise<$models.UpdateChannel> {
+    return $Call.ByID(521040195);
+}
+
 export function ListApps(): $CancellablePromise<$models.AppView[] | null> {
     return $Call.ByID(2911868755);
 }
@@ -87,6 +91,10 @@ export function SetGatewayPort(port: number): $CancellablePromise<$models.Gatewa
 
 export function SetPinned(id: string, pinned: boolean): $CancellablePromise<$models.AppView> {
     return $Call.ByID(1478943487, id, pinned);
+}
+
+export function SetUpdateChannel(channel: string): $CancellablePromise<$models.UpdateChannel> {
+    return $Call.ByID(3976502999, channel);
 }
 
 export function SkipUpdate(version: string): $CancellablePromise<void> {

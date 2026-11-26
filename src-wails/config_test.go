@@ -74,6 +74,21 @@ func TestGatewayPortRoundtrip(t *testing.T) {
 	}
 }
 
+func TestUpdateChannelRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "apps.yml")
+	if err := saveConfig(path, ConfigFile{UpdateChannel: UpdateChannelBeta, Apps: []AppEntry{}}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalizeUpdateChannel(loaded.UpdateChannel) != UpdateChannelBeta {
+		t.Fatalf("updateChannel = %q, want beta", loaded.UpdateChannel)
+	}
+}
+
 func TestWakeOnRequestDefaultsTrue(t *testing.T) {
 	var loaded ConfigFile
 	err := yaml.Unmarshal([]byte(`

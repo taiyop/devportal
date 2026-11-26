@@ -43,9 +43,17 @@ jobs:
             echo "empty version from tag: ${TAG}" >&2
             exit 1
           fi
+          CORE_AND_PRE="${VERSION%%+*}"
+          if [[ "$CORE_AND_PRE" == *-* ]]; then
+            IS_PRERELEASE="true"
+          else
+            IS_PRERELEASE="false"
+          fi
           echo "tag=${TAG}"
           echo "APP_VERSION=${VERSION}"
+          echo "IS_PRERELEASE=${IS_PRERELEASE}"
           echo "APP_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "IS_PRERELEASE=${IS_PRERELEASE}" >> "$GITHUB_ENV"
 
       - name: Build macOS DMG and Updater Package
         run: |
@@ -73,6 +81,6 @@ jobs:
             src-wails/bin/SHA256SUMS
           generate_release_notes: true
           draft: false
-          prerelease: false
+          prerelease: ${{ env.IS_PRERELEASE == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

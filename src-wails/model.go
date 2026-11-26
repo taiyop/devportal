@@ -107,6 +107,33 @@ func (e *AppEntry) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
+type UpdateChannel string
+
+const (
+	UpdateChannelStable UpdateChannel = "stable"
+	UpdateChannelBeta   UpdateChannel = "beta"
+)
+
+func normalizeUpdateChannel(ch UpdateChannel) UpdateChannel {
+	switch strings.ToLower(strings.TrimSpace(string(ch))) {
+	case string(UpdateChannelBeta):
+		return UpdateChannelBeta
+	default:
+		return UpdateChannelStable
+	}
+}
+
+func parseUpdateChannel(raw string) (UpdateChannel, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", string(UpdateChannelStable):
+		return UpdateChannelStable, nil
+	case string(UpdateChannelBeta):
+		return UpdateChannelBeta, nil
+	default:
+		return "", errString("アップデートチャンネルは stable または beta を指定してください")
+	}
+}
+
 type CategoryEntry struct {
 	ID    string `json:"id" yaml:"id"`
 	Name  string `json:"name" yaml:"name"`
@@ -116,6 +143,7 @@ type CategoryEntry struct {
 type ConfigFile struct {
 	GatewayPort    *uint16         `json:"gatewayPort" yaml:"gatewayPort,omitempty"`
 	ControlAPIPort *uint16         `json:"controlApiPort" yaml:"controlApiPort,omitempty"`
+	UpdateChannel  UpdateChannel   `json:"updateChannel" yaml:"updateChannel,omitempty"`
 	Categories     []CategoryEntry `json:"categories" yaml:"categories,omitempty"`
 	Apps           []AppEntry      `json:"apps" yaml:"apps"`
 }

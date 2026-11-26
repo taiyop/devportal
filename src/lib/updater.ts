@@ -3,8 +3,11 @@ import { Events, Updater } from "@wailsio/runtime";
 import {
   appVersion,
   checkForUpdates,
+  getUpdateChannel,
   restartToUpdate,
+  setUpdateChannel,
   skipUpdate,
+  type UpdateChannel,
 } from "@/api";
 
 export type UpdateStage =
@@ -20,6 +23,7 @@ export type UpdateStage =
 
 export interface UpdateRelease {
   version: string;
+  channel: string;
   name: string;
   notes: string;
   filename: string;
@@ -34,6 +38,8 @@ export interface UpdateProgress {
 
 export interface AppUpdater {
   version: string;
+  channel: UpdateChannel;
+  savingChannel: boolean;
   stage: UpdateStage;
   release: UpdateRelease | null;
   progress: UpdateProgress | null;
@@ -44,13 +50,16 @@ export interface AppUpdater {
   skip: () => void;
   remind: () => void;
   restart: () => Promise<void>;
+  setChannel: (channel: UpdateChannel) => Promise<void>;
 }
 
 export function useAppUpdater(preview: boolean): AppUpdater {
   const [version, setVersion] = useState("0.1.0");
+  const [channel, setChannelState] = useState<UpdateChannel>("stable");
+  const [savingChannel, setSavingChannel] = useState(false);
   const [stage, setStage] = useState<UpdateStage>(preview ? "available" : "idle");
   const [release, setRelease] = useState<UpdateRelease | null>(
-    preview ? previewRelease() : null,
+    preview ? previewRelease("stable") : null,
   );
   const [progress, setProgress] = useState<UpdateProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,8 +69,9 @@ export function useAppUpdater(preview: boolean): AppUpdater {
   useEffect(() => {
     if (preview) {
       setVersion("0.1.0");
+      setChannelState("stable");
       setStage("available");
-      setRelease(previewRelease());
+      setRelease(previewRelease("stable"));
       return;
     }
 
@@ -70,6 +80,11 @@ export function useAppUpdater(preview: boolean): AppUpdater {
       .then((next) => {
         const normalized = normalizeVersion(next);
         if (!cancelled && normalized) setVersion(normalized);
+      })
+      .catch(() => {});
+    void getUpdateChannel()
+      .then((next) => {
+        if (!cancelled) setChannelState(next);
       })
       .catch(() => {});
 
@@ -142,7 +157,7 @@ export function useAppUpdater(preview: boolean): AppUpdater {
       setStage("checking");
       window.setTimeout(() => {
         setStage("available");
-        setRelease(previewRelease());
+        setRelease(previewRelease(channel));
         setDismissed(false);
       }, 420);
       return;
@@ -174,8 +189,27 @@ export function useAppUpdater(preview: boolean): AppUpdater {
     }
   }
 
+  async function setChannel(next: UpdateChannel) {
+    if (next === channel || savingChannel) return;
+    if (preview) {
+      setChannelState(next);
+      setRelease(previewRelease(next));
+      setStage("available");
+      return;
+    }
+    setSavingChannel(true);
+    try {
+      const saved = await setUpdateChannel(next);
+      setChannelState(saved);
+    } finally {
+      setSavingChannel(false);
+    }
+  }
+
   return {
     version,
+    channel,
+    savingChannel,
     stage,
     release,
     progress,
@@ -186,6 +220,7 @@ export function useAppUpdater(preview: boolean): AppUpdater {
     skip,
     remind,
     restart,
+    setChannel,
   };
 }
 
@@ -200,9 +235,20 @@ function listen(
   }
 }
 
-function previewRelease(): UpdateRelease {
+function previewRelease(channel: UpdateChannel): UpdateRelease {
+  if (channel === "beta") {
+    return {
+      version: "0.2.0-beta.1",
+      channel: "prerelease",
+      name: "DevPortal 0.2.0-beta.1",
+      notes: "ベータチャンネルの先行テスト版です。",
+      filename: "DevPortal-darwin-arm64.zip",
+      size: 12 * 1024 * 1024,
+    };
+  }
   return {
     version: "0.2.0",
+    channel: "stable",
     name: "DevPortal 0.2.0",
     notes: "起動先の favicon 表示と、アプリ内アップデートの案内を追加しました。",
     filename: "DevPortal-darwin-arm64.zip",
@@ -214,6 +260,7 @@ function asRelease(data: unknown): UpdateRelease | null {
   if (!data || typeof data !== "object") return null;
   const raw = data as {
     version?: string;
+    channel?: string;
     name?: string;
     notes?: string;
     artifact?: { filename?: string; size?: number };
@@ -222,6 +269,7 @@ function asRelease(data: unknown): UpdateRelease | null {
   if (!version) return null;
   return {
     version,
+    channel: String(raw.channel ?? "").trim(),
     name: String(raw.name ?? "").trim(),
     notes: String(raw.notes ?? ""),
     filename: String(raw.artifact?.filename ?? ""),
@@ -259,6 +307,16 @@ export function normalizeVersion(version: string): string {
 export function formatVersionLabel(version: string): string {
   const normalized = normalizeVersion(version);
   return normalized ? `v${normalized}` : "";
+}
+
+export function isPrereleaseVersion(version: string): boolean {
+  const coreAndPre = normalizeVersion(version).split("+")[0] ?? "";
+  return coreAndPre.includes("-");
+}
+
+export function isPrereleaseRelease(release: UpdateRelease | null): boolean {
+  if (!release) return false;
+  return release.channel === "prerelease" || isPrereleaseVersion(release.version);
 }
 
 export function formatBytes(bytes: number): string {

@@ -127,8 +127,24 @@ export async function openConfigPath(): Promise<void> {
   await PortalService.OpenConfigPath();
 }
 
+export type UpdateChannel = "stable" | "beta";
+
 export async function appVersion(): Promise<string> {
   return PortalService.AppVersion();
+}
+
+export async function getUpdateChannel(): Promise<UpdateChannel> {
+  return asUpdateChannel(await PortalService.GetUpdateChannel());
+}
+
+export async function setUpdateChannel(
+  channel: UpdateChannel,
+): Promise<UpdateChannel> {
+  return asUpdateChannel(await PortalService.SetUpdateChannel(channel));
+}
+
+function asUpdateChannel(value: string | null | undefined): UpdateChannel {
+  return value === "beta" ? "beta" : "stable";
 }
 
 export function checkForUpdates(): void {

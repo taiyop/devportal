@@ -104,6 +104,22 @@ func (s *PortalService) AppVersion() string {
 	return runningVersion()
 }
 
+func (s *PortalService) GetUpdateChannel() UpdateChannel {
+	return s.portal.UpdateChannel()
+}
+
+func (s *PortalService) SetUpdateChannel(channel string) (UpdateChannel, error) {
+	prev := s.portal.UpdateChannel()
+	next, err := s.portal.SetUpdateChannel(channel)
+	if err != nil {
+		return prev, err
+	}
+	if next != prev && s.app != nil {
+		go checkForUpdatesSilently(context.Background(), s.app)
+	}
+	return next, nil
+}
+
 func (s *PortalService) CheckForUpdates() {
 	go runCheckAndInstall(s.app)
 }

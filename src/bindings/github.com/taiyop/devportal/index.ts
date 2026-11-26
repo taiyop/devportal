@@ -8,7 +8,8 @@ export {
 
 export {
     AppStatus,
-    PortMode
+    PortMode,
+    UpdateChannel
 } from "./models.js";
 
 export type {
