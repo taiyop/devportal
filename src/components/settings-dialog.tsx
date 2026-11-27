@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { copyText } from "@/lib/clipboard";
 import { asError } from "@/lib/error";
 import { buildAgentGuidePrompt } from "@/lib/agent-prompt";
@@ -49,6 +50,8 @@ export function SettingsDialog({
   configPath,
   gatewayPort,
   gatewayRunning,
+  gatewayAllowLAN,
+  gatewaySettingsBusy,
   savingPort,
   controlApi,
   savingControlApiPort,
@@ -57,6 +60,7 @@ export function SettingsDialog({
   onOpenChange,
   onRevealConfig,
   onSaveGatewayPort,
+  onSaveGatewayLAN,
   onSaveControlApiPort,
   onRotateControlApiToken,
 }: {
@@ -66,6 +70,8 @@ export function SettingsDialog({
   configPath: string;
   gatewayPort: number;
   gatewayRunning: boolean;
+  gatewayAllowLAN: boolean;
+  gatewaySettingsBusy: boolean;
   savingPort: boolean;
   controlApi: ControlAPIStatus;
   savingControlApiPort: boolean;
@@ -74,6 +80,7 @@ export function SettingsDialog({
   onOpenChange: (open: boolean) => void;
   onRevealConfig: () => void;
   onSaveGatewayPort: (port: number) => void;
+  onSaveGatewayLAN: (allow: boolean) => void;
   onSaveControlApiPort: (port: number) => void;
   onRotateControlApiToken: () => void;
 }) {
@@ -162,8 +169,8 @@ export function SettingsDialog({
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
           <section className="flex flex-col gap-2">
             <h2 className="px-1 text-[13px] font-semibold">リバースプロキシ</h2>
-            <form onSubmit={submitPort}>
-              <FieldGroup className="surface settings-group gap-0 p-0">
+            <FieldGroup className="surface settings-group gap-0 p-0">
+              <form onSubmit={submitPort}>
                 <Field className="gap-1.5 px-4 py-3" data-invalid={!!portError}>
                   <FieldLabel htmlFor="gateway-port">ポート</FieldLabel>
                   <div className="flex items-center gap-2">
@@ -181,7 +188,7 @@ export function SettingsDialog({
                         setPortError(null);
                       }}
                     />
-                    <Button type="submit" size="sm" disabled={savingPort}>
+                    <Button type="submit" size="sm" disabled={gatewaySettingsBusy}>
                       {savingPort ? <Spinner /> : null}
                       保存
                     </Button>
@@ -197,8 +204,28 @@ export function SettingsDialog({
                     </FieldDescription>
                   )}
                 </Field>
-              </FieldGroup>
-            </form>
+              </form>
+              <Field className="gap-1.5 border-t border-border px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <FieldLabel htmlFor="gateway-lan-toggle">
+                    LAN からのアクセスを許可
+                  </FieldLabel>
+                  <Switch
+                    id="gateway-lan-toggle"
+                    checked={gatewayAllowLAN}
+                    disabled={gatewaySettingsBusy}
+                    aria-describedby="gateway-lan-description"
+                    onCheckedChange={onSaveGatewayLAN}
+                  />
+                </div>
+                <FieldDescription id="gateway-lan-description">
+                  オンにすると同じ LAN の端末にホスト名付きの登録アプリを端末認証なしで公開します。
+                  {gatewayAllowLAN
+                    ? " 別端末ではローカル DNS でアプリ名.devportal.home.arpa をこの端末の LAN IP に向けてください。"
+                    : " オフのときはこの端末から利用できます。"}
+                </FieldDescription>
+              </Field>
+            </FieldGroup>
           </section>
 
           {open ? <TailnetSettingsPanel apps={apps} preview={preview} /> : null}

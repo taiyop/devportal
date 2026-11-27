@@ -102,6 +102,7 @@ export interface GatewayStatus {
     "addr": string;
     "port": number;
     "preferredPort": number;
+    "allowLan": boolean;
     "running": boolean;
     "error": string;
     "note": string;

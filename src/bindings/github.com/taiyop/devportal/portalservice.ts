@@ -101,6 +101,10 @@ export function SetControlAPIPort(port: number): $CancellablePromise<$models.Con
     return $Call.ByID(215510069, port);
 }
 
+export function SetGatewayAllowLAN(allow: boolean): $CancellablePromise<$models.GatewayStatus> {
+    return $Call.ByID(303124497, allow);
+}
+
 export function SetGatewayPort(port: number): $CancellablePromise<$models.GatewayStatus> {
     return $Call.ByID(930655546, port);
 }

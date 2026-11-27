@@ -144,12 +144,13 @@ type CategoryEntry struct {
 }
 
 type ConfigFile struct {
-	GatewayPort    *uint16         `json:"gatewayPort" yaml:"gatewayPort,omitempty"`
-	ControlAPIPort *uint16         `json:"controlApiPort" yaml:"controlApiPort,omitempty"`
-	UpdateChannel  UpdateChannel   `json:"updateChannel" yaml:"updateChannel,omitempty"`
-	Tailnet        TailnetConfig   `json:"-" yaml:"tailnet,omitempty"`
-	Categories     []CategoryEntry `json:"categories" yaml:"categories,omitempty"`
-	Apps           []AppEntry      `json:"apps" yaml:"apps"`
+	GatewayPort     *uint16         `json:"gatewayPort" yaml:"gatewayPort,omitempty"`
+	GatewayAllowLAN bool            `json:"gatewayAllowLan" yaml:"gatewayAllowLan,omitempty"`
+	ControlAPIPort  *uint16         `json:"controlApiPort" yaml:"controlApiPort,omitempty"`
+	UpdateChannel   UpdateChannel   `json:"updateChannel" yaml:"updateChannel,omitempty"`
+	Tailnet         TailnetConfig   `json:"-" yaml:"tailnet,omitempty"`
+	Categories      []CategoryEntry `json:"categories" yaml:"categories,omitempty"`
+	Apps            []AppEntry      `json:"apps" yaml:"apps"`
 }
 
 type AppsChangedEvent struct {

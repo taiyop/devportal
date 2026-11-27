@@ -266,6 +266,7 @@ export interface GatewayStatus {
   addr: string;
   port: number;
   preferredPort: number;
+  allowLan: boolean;
   running: boolean;
   error: string;
   note: string;
@@ -275,6 +276,7 @@ export const idleGateway = (): GatewayStatus => ({
   addr: "http://127.0.0.1:80",
   port: 80,
   preferredPort: 80,
+  allowLan: false,
   running: false,
   error: "",
   note: "",
@@ -296,6 +298,10 @@ export async function setGatewayPort(port: number): Promise<GatewayStatus> {
   return asGatewayStatus(await PortalService.SetGatewayPort(port));
 }
 
+export async function setGatewayAllowLAN(allow: boolean): Promise<GatewayStatus> {
+  return asGatewayStatus(await PortalService.SetGatewayAllowLAN(allow));
+}
+
 export function onGatewayStatus(
   handler: (status: GatewayStatus) => void,
 ): () => void {
@@ -315,6 +321,7 @@ function asGatewayStatus(status: BoundGatewayStatus | GatewayStatus): GatewaySta
     addr: status.addr || `http://127.0.0.1:${port}`,
     port,
     preferredPort,
+    allowLan: Boolean(status.allowLan),
     running: Boolean(status.running),
     error: status.error ?? "",
     note: status.note ?? "",

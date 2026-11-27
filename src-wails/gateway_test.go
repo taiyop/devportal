@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -23,7 +24,7 @@ func TestGatewayUnknownHost(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Host = "missing.devportal.localhost"
-	p.handleGateway(rec, req)
+	p.handleGateway(rec, req, false)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("code %d body %s", rec.Code, rec.Body.String())
 	}
@@ -49,7 +50,7 @@ func TestGatewayWakesStoppedApp(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Host = "notes.devportal.localhost"
-	p.handleGateway(rec, req)
+	p.handleGateway(rec, req, false)
 	if strings.Contains(rec.Body.String(), "アプリは停止中です") {
 		t.Fatal("stopped apps should wake on domain access")
 	}
@@ -86,7 +87,7 @@ func TestGatewayProxiesRunningApp(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/hello", nil)
 	req.Host = "notes.devportal.localhost"
-	p.handleGateway(rec, req)
+	p.handleGateway(rec, req, false)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code %d body %s", rec.Code, rec.Body.String())
 	}
@@ -131,7 +132,7 @@ func TestGatewayProxiesIPv6Loopback(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/hello", nil)
 	req.Host = "notes.devportal.localhost"
-	p.handleGateway(rec, req)
+	p.handleGateway(rec, req, false)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code %d body %s", rec.Code, rec.Body.String())
 	}
@@ -305,7 +306,7 @@ func TestStartGatewaySkipsPort80WithoutFailing(t *testing.T) {
 	}
 }
 
-func TestPreferredGatewayIsAllInterfaces80(t *testing.T) {
+func TestPreferredGatewayPortIs80(t *testing.T) {
 	addrs := listenAddrsFor(0)
 	if addrs[0] != ":80" {
 		t.Fatalf("preferred %q", addrs[0])
@@ -390,9 +391,6 @@ func TestSetGatewayPortEmptyIs80(t *testing.T) {
 	if err := p.SetGatewayPort(0); err != nil {
 		t.Fatal(err)
 	}
-	if p.preferredGatewayPort() != 80 {
-		t.Fatalf("preferred %d", p.preferredGatewayPort())
-	}
 	st := p.GatewayStatus()
 	if st.PreferredPort != 80 {
 		t.Fatalf("status %+v", st)
@@ -419,6 +417,9 @@ func TestGatewayAcceptsIPv4AndIPv6(t *testing.T) {
 	}
 	t.Cleanup(p.StopGateway)
 	st := p.GatewayStatus()
+	if st.AllowLAN {
+		t.Fatal("LAN access is enabled by default")
+	}
 	if !st.Running {
 		t.Fatalf("status %+v", st)
 	}
@@ -439,6 +440,113 @@ func TestGatewayAcceptsIPv4AndIPv6(t *testing.T) {
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusNotFound {
 			t.Fatalf("%s code %d", raw, resp.StatusCode)
+		}
+	}
+}
+
+func TestGatewayLANSettingPersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "apps.yml")
+	if err := os.WriteFile(path, []byte("apps: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := newTestPortal()
+	p.inner.configPath = path
+	p.inner.file = file
+	if p.GatewayStatus().AllowLAN {
+		t.Fatal("existing config should default to loopback")
+	}
+	for _, allow := range []bool{true, false} {
+		if err := p.SetGatewayAllowLAN(allow); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := loadConfig(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status := p.GatewayStatus(); status.AllowLAN != allow || status.Running || loaded.GatewayAllowLAN != allow {
+			t.Fatalf("allow=%t, status=%+v, saved=%t", allow, status, loaded.GatewayAllowLAN)
+		}
+	}
+}
+
+func TestGatewayLANListenerAllowsOnlyItsPrivateSubnet(t *testing.T) {
+	for _, test := range []struct {
+		subnet, allowed, denied string
+	}{
+		{"192.168.50.0/24", "192.168.50.10", "192.168.51.10"},
+		{"fd00:50::/64", "fd00:50::10", "fd00:51::10"},
+		{"10.0.0.0/4", "10.1.0.10", "12.1.0.10"},
+	} {
+		_, network, err := net.ParseCIDR(test.subnet)
+		if err != nil {
+			t.Fatal(err)
+		}
+		listener := gatewayLANListener{subnet: network}
+		if !listener.allows(net.ParseIP(test.allowed)) || listener.allows(net.ParseIP(test.denied)) {
+			t.Fatalf("incorrect allow/deny for %s", test.subnet)
+		}
+	}
+}
+
+func TestGatewayToggleLANChangesLiveListeners(t *testing.T) {
+	addresses, err := gatewayLANAddresses()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(addresses) == 0 {
+		t.Skip("no LAN interface")
+	}
+	p := newTestPortal()
+	p.inner.configPath = filepath.Join(t.TempDir(), "apps.yml")
+	port := uint16(listenPortOf(freeLocalAddr(t)))
+	p.inner.file.GatewayPort = &port
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer backend.Close()
+	backendPort := tcpListenPort(backend.Listener)
+	p.inner.file.Apps = []AppEntry{{ID: "notes", Hostname: "notes", Port: &backendPort}}
+	p.inner.runtime["notes"] = &Runtime{port: backendPort, ready: true}
+	if err := p.StartGateway(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.StopGateway)
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	defer client.CloseIdleConnections()
+	for _, allow := range []bool{false, true, false} {
+		if err := p.SetGatewayAllowLAN(allow); err != nil {
+			t.Fatal(err)
+		}
+		status := p.GatewayStatus()
+		if !status.Running || status.AllowLAN != allow {
+			t.Fatalf("allow=%t, status=%+v", allow, status)
+		}
+		lanAddr := net.JoinHostPort(addresses[0].host, itoaPort(status.Port))
+		if !allow {
+			if conn, err := net.DialTimeout("tcp", lanAddr, time.Second); err == nil {
+				_ = conn.Close()
+				t.Fatalf("LAN connection to %s while disabled", lanAddr)
+			}
+			continue
+		}
+		target := url.URL{Scheme: "http", Host: lanAddr, Path: "/"}
+		req, err := http.NewRequest(http.MethodGet, target.String(), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = "notes.devportal.home.arpa"
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("LAN hostname routing: status %d", resp.StatusCode)
 		}
 	}
 }
@@ -472,6 +580,19 @@ func newTestPortal() *Portal {
 		runtime: map[string]*Runtime{},
 		errors:  map[string]string{},
 	}}
+}
+
+func (p *Portal) listenAndServeGateway(addr string) error {
+	return p.listenFirstAvailable([]string{addr})
+}
+
+func (p *Portal) listenFirstAvailable(addrs []string) error {
+	p.gatewayMu.Lock()
+	err := p.startGatewayLocked(addrs, false)
+	p.gatewayMu.Unlock()
+	p.emitGateway()
+	p.emitAllViews()
+	return err
 }
 
 func freeLocalAddr(t *testing.T) string {

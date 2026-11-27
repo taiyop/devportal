@@ -25,6 +25,7 @@ type GatewayStatus struct {
 	Addr          string `json:"addr"`
 	Port          uint16 `json:"port"`
 	PreferredPort uint16 `json:"preferredPort"`
+	AllowLAN      bool   `json:"allowLan"`
 	Running       bool   `json:"running"`
 	Error         string `json:"error"`
 	Note          string `json:"note"`
@@ -58,54 +59,75 @@ func listenAddrsFor(port uint16) []string {
 	return append(addrs, ":0")
 }
 
-func (p *Portal) preferredGatewayPort() uint16 {
+func (p *Portal) gatewayConfig() (uint16, bool) {
 	inner := p.lock()
 	defer p.unlock()
-	return preferredGatewayPort(inner.file)
+	return preferredGatewayPort(inner.file), inner.file.GatewayAllowLAN
 }
 
 func (p *Portal) StartGateway() error {
-	return p.listenFirstAvailable(listenAddrsFor(p.preferredGatewayPort()))
+	p.gatewayMu.Lock()
+	port, allowLAN := p.gatewayConfig()
+	err := p.startGatewayLocked(listenAddrsFor(port), allowLAN)
+	p.gatewayMu.Unlock()
+	p.emitGateway()
+	p.emitAllViews()
+	return err
 }
 
 func (p *Portal) SetGatewayPort(port uint16) error {
-	next := normalizeGatewayPort(port)
+	port = normalizeGatewayPort(port)
+	return p.setGatewayConfig(func(file *ConfigFile) {
+		file.GatewayPort = &port
+	})
+}
+
+func (p *Portal) SetGatewayAllowLAN(allow bool) error {
+	return p.setGatewayConfig(func(file *ConfigFile) { file.GatewayAllowLAN = allow })
+}
+
+func (p *Portal) setGatewayConfig(update func(*ConfigFile)) error {
+	p.gatewayMu.Lock()
 	inner := p.lock()
-	prev := preferredGatewayPort(inner.file)
-	stored := next
-	inner.file.GatewayPort = &stored
-	err := saveConfig(inner.configPath, inner.file)
+	prev := inner.file
+	next := prev
+	update(&next)
+	err := saveConfig(inner.configPath, next)
+	if err == nil {
+		inner.file = next
+	}
 	p.unlock()
 	if err != nil {
+		p.gatewayMu.Unlock()
 		return err
 	}
 
-	p.gatewayMu.Lock()
-	running := p.gateway != nil
+	port := preferredGatewayPort(next)
+	changed := preferredGatewayPort(prev) != port || prev.GatewayAllowLAN != next.GatewayAllowLAN
+	if changed && p.gateway != nil {
+		p.stopGatewayLocked()
+		err = p.startGatewayLocked(listenAddrsFor(port), next.GatewayAllowLAN)
+	}
 	p.gatewayMu.Unlock()
-	if running && prev != next {
-		p.StopGateway()
-		return p.StartGateway()
-	}
 	p.emitGateway()
-	return nil
+	p.emitAllViews()
+	return err
 }
 
-func (p *Portal) listenAndServeGateway(addr string) error {
-	return p.listenFirstAvailable([]string{addr})
-}
-
-func (p *Portal) listenFirstAvailable(addrs []string) error {
-	if len(addrs) == 0 {
-		addrs = listenAddrsFor(defaultGatewayPort)
-	}
-	p.gatewayMu.Lock()
+func (p *Portal) startGatewayLocked(addrs []string, allowLAN bool) error {
 	if p.gateway != nil {
-		p.gatewayMu.Unlock()
 		return nil
 	}
+	var lan []gatewayLANAddress
+	if allowLAN {
+		var err error
+		lan, err = gatewayLANAddresses()
+		if err != nil {
+			p.gatewayErr = fmt.Sprintf("LAN のアドレスを取得できません: %v", err)
+			return errString(p.gatewayErr)
+		}
+	}
 
-	var lastErr error
 	preferred := listenPortOf(addrs[0])
 	if preferred == 0 {
 		preferred = int(defaultGatewayPort)
@@ -113,29 +135,26 @@ func (p *Portal) listenFirstAvailable(addrs []string) error {
 	deniedPreferred := false
 	busyPreferred := false
 	for i, addr := range addrs {
-		ln, ln4, err := listenGateway(addr)
+		candidate := listenPortOf(addr)
+		listeners, err := listenGateway(strconv.Itoa(candidate), lan)
 		if err != nil {
-			lastErr = err
-			if listenPortOf(addr) == preferred {
+			if candidate == preferred {
 				deniedPreferred = deniedPreferred || listenDenied(err)
 				busyPreferred = busyPreferred || listenBusy(err)
 			}
 			if i < len(addrs)-1 && shouldTryNextListen(err) {
 				continue
 			}
-			msg := fmt.Sprintf("%s で待ち受けできません: %v", addr, err)
-			p.gatewayErr = msg
-			p.gatewayMu.Unlock()
-			p.emitGateway()
-			return errString(msg)
+			p.gatewayErr = fmt.Sprintf("%s で待ち受けできません: %v", addr, err)
+			return errString(p.gatewayErr)
 		}
 
-		port := tcpListenPort(ln)
+		port := tcpListenPort(listeners[0])
 		note := ""
 		if int(port) != preferred {
 			switch {
 			case deniedPreferred && preferred == int(defaultGatewayPort):
-				note = fmt.Sprintf("ポート %d は管理者権限が必要なため、:%d で待ち受けています。IPv4 と IPv6 の両方で受けます。", preferred, port)
+				note = fmt.Sprintf("ポート %d は管理者権限が必要なため、ポート %d で待ち受けています。", preferred, port)
 			case deniedPreferred:
 				note = fmt.Sprintf("ポート %d は権限が必要なため、:%d で待ち受けています。", preferred, port)
 			case busyPreferred:
@@ -144,73 +163,67 @@ func (p *Portal) listenFirstAvailable(addrs []string) error {
 				note = fmt.Sprintf(":%d で待ち受けています。", port)
 			}
 		}
-		err = p.serveGatewayLocked(ln, ln4, port, note)
-		p.gatewayMu.Unlock()
-		if err != nil {
-			return err
+		if allowLAN && len(lan) == 0 {
+			note = strings.TrimSpace(note + " LAN 用のアドレスが見つかりません。")
 		}
+		p.serveGatewayLocked(listeners, port, note, allowLAN)
 		p.syncInnerGatewayPort(port)
-		p.emitGateway()
-		p.emitAllViews()
 		return nil
 	}
 
-	msg := "リバースプロキシを開始できません"
-	if lastErr != nil {
-		msg = fmt.Sprintf("リバースプロキシを開始できません: %v", lastErr)
-	}
-	p.gatewayErr = msg
-	p.gatewayMu.Unlock()
-	p.emitGateway()
-	return errString(msg)
+	p.gatewayErr = "リバースプロキシを開始できません"
+	return errString(p.gatewayErr)
 }
 
-func (p *Portal) serveGatewayLocked(ln, ln4 net.Listener, port uint16, note string) error {
+func (p *Portal) serveGatewayLocked(listeners []net.Listener, port uint16, note string, allowLAN bool) {
+	ctx, cancel := context.WithCancel(context.Background())
 	srv := &http.Server{
-		Addr:              ln.Addr().String(),
-		Handler:           http.HandlerFunc(p.handleGateway),
+		Addr: listeners[0].Addr().String(),
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p.handleGateway(w, r, allowLAN)
+		}),
+		BaseContext:       func(net.Listener) context.Context { return ctx },
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	p.gateway = srv
-	p.gatewayLn = ln
-	p.gatewayLn4 = ln4
-	p.gatewayListen = ln.Addr().String()
+	p.gatewayListeners = listeners
+	p.gatewayCancel = cancel
+	p.gatewayListen = srv.Addr
 	p.gatewayPort = port
 	p.gatewayNote = note
 	p.gatewayErr = ""
 
-	go func() { _ = srv.Serve(ln) }()
-	if ln4 != nil {
-		go func() { _ = srv.Serve(ln4) }()
+	for _, listener := range listeners {
+		go func() { _ = srv.Serve(listener) }()
 	}
-	return nil
 }
 
 func (p *Portal) StopGateway() {
 	p.gatewayMu.Lock()
-	srv := p.gateway
-	ln := p.gatewayLn
-	ln4 := p.gatewayLn4
+	p.stopGatewayLocked()
+	p.gatewayMu.Unlock()
+	p.emitGateway()
+	p.emitAllViews()
+}
+
+func (p *Portal) stopGatewayLocked() {
+	if p.gatewayCancel != nil {
+		p.gatewayCancel()
+	}
+	for _, listener := range p.gatewayListeners {
+		_ = listener.Close()
+	}
+	if p.gateway != nil {
+		_ = p.gateway.Close()
+	}
 	p.gateway = nil
-	p.gatewayLn = nil
-	p.gatewayLn4 = nil
+	p.gatewayListeners = nil
+	p.gatewayCancel = nil
 	p.gatewayListen = ""
 	p.gatewayPort = 0
 	p.gatewayNote = ""
 	p.gatewayErr = ""
-	p.gatewayMu.Unlock()
-	if ln != nil {
-		_ = ln.Close()
-	}
-	if ln4 != nil {
-		_ = ln4.Close()
-	}
-	if srv != nil {
-		_ = srv.Close()
-	}
 	p.syncInnerGatewayPort(0)
-	p.emitGateway()
-	p.emitAllViews()
 }
 
 func (p *Portal) PrepareHostnameURL(raw string) (string, error) {
@@ -239,36 +252,16 @@ func (p *Portal) PrepareHostnameURL(raw string) (string, error) {
 	return u.String(), nil
 }
 
-func listenGateway(addr string) (net.Listener, net.Listener, error) {
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, nil, err
-	}
-	ta, ok := ln.Addr().(*net.TCPAddr)
-	if !ok || ta.IP.To4() != nil || !ta.IP.IsUnspecified() {
-		return ln, nil, nil
-	}
-	ln4, err4 := net.Listen("tcp4", fmt.Sprintf("0.0.0.0:%d", ta.Port))
-	if err4 != nil {
-		return ln, nil, nil
-	}
-	return ln, ln4, nil
-}
-
 func (p *Portal) GatewayStatus() GatewayStatus {
-	preferred := p.preferredGatewayPort()
 	p.gatewayMu.Lock()
 	defer p.gatewayMu.Unlock()
-	return p.gatewaySnapshot(preferred)
+	preferred, allowLAN := p.gatewayConfig()
+	return p.gatewaySnapshot(preferred, allowLAN)
 }
 
 func (p *Portal) emitGateway() {
-	preferred := p.preferredGatewayPort()
-	p.gatewayMu.Lock()
-	status := p.gatewaySnapshot(preferred)
-	p.gatewayMu.Unlock()
 	if p.EmitGateway != nil {
-		p.EmitGateway(status)
+		p.EmitGateway(p.GatewayStatus())
 	}
 }
 
@@ -287,7 +280,7 @@ func (p *Portal) syncInnerGatewayPort(port uint16) {
 	p.unlock()
 }
 
-func (p *Portal) gatewaySnapshot(preferred uint16) GatewayStatus {
+func (p *Portal) gatewaySnapshot(preferred uint16, allowLAN bool) GatewayStatus {
 	preferred = normalizeGatewayPort(preferred)
 	port := p.gatewayPort
 	if port == 0 {
@@ -297,6 +290,7 @@ func (p *Portal) gatewaySnapshot(preferred uint16) GatewayStatus {
 		Addr:          "http://" + displayListenAddr(p.gatewayListen, port),
 		Port:          port,
 		PreferredPort: preferred,
+		AllowLAN:      allowLAN,
 		Running:       p.gateway != nil && p.gatewayErr == "",
 		Error:         p.gatewayErr,
 		Note:          p.gatewayNote,
@@ -368,10 +362,13 @@ func listenBusy(err error) bool {
 		strings.Contains(msg, "only one usage of each socket address")
 }
 
-func (p *Portal) handleGateway(w http.ResponseWriter, r *http.Request) {
+func (p *Portal) handleGateway(w http.ResponseWriter, r *http.Request, allowLAN bool) {
 	label := hostLabelFromRequest(r.Host)
+	if label == "" && allowLAN {
+		label = hostLabelForSuffix(r.Host, lanHostnameSuffix)
+	}
 	if label == "" {
-		http.Error(w, "DevPortal: Host ヘッダが *.devportal.localhost ではありません\n", http.StatusBadRequest)
+		http.Error(w, "DevPortal: ホスト名が無効です", http.StatusBadRequest)
 		return
 	}
 	inner := p.lock()

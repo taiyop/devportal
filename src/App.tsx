@@ -47,6 +47,7 @@ import {
   rotateControlAPIToken,
   setBoardPinned,
   setControlAPIPort,
+  setGatewayAllowLAN,
   setGatewayPort,
   setPinned,
   startApp,
@@ -141,6 +142,8 @@ export default function App() {
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingGatewayPort, setSavingGatewayPort] = useState(false);
+  const [savingGatewayLAN, setSavingGatewayLAN] = useState(false);
+  const gatewaySettingsBusy = gatewayBusy || savingGatewayPort || savingGatewayLAN;
   const [savingControlApiPort, setSavingControlApiPort] = useState(false);
   const [rotatingControlApiToken, setRotatingControlApiToken] = useState(false);
   const updater = useAppUpdater(preview);
@@ -166,6 +169,7 @@ export default function App() {
         addr: "http://127.0.0.1:80",
         port: 80,
         preferredPort: 80,
+        allowLan: false,
         running: true,
         error: "",
         note: "",
@@ -925,7 +929,7 @@ export default function App() {
   }
 
   async function saveGatewayPort(port: number) {
-    if (savingGatewayPort) return;
+    if (gatewaySettingsBusy) return;
     if (preview) {
       setGateway((current) => ({
         ...current,
@@ -956,6 +960,28 @@ export default function App() {
       }
     } finally {
       setSavingGatewayPort(false);
+    }
+  }
+
+  async function saveGatewayLAN(allow: boolean) {
+    if (gatewaySettingsBusy) return;
+    if (preview) {
+      setGateway((current) => ({ ...current, allowLan: allow }));
+      return;
+    }
+    setSavingGatewayLAN(true);
+    try {
+      setGateway(await setGatewayAllowLAN(allow));
+      toast.success(allow ? "LAN アクセスを許可しました" : "LAN アクセスを無効にしました");
+    } catch (error) {
+      toast.error(asError(error) || "LAN アクセスの設定を変更できませんでした");
+      try {
+        setGateway(await getGatewayStatus());
+      } catch {
+        // keep current
+      }
+    } finally {
+      setSavingGatewayLAN(false);
     }
   }
 
@@ -1017,10 +1043,11 @@ export default function App() {
   }
 
   async function toggleGateway(nextRunning: boolean) {
-    if (gatewayBusy) return;
+    if (gatewaySettingsBusy) return;
     if (preview) {
       const port = gateway.preferredPort || 80;
       setGateway({
+        ...gateway,
         addr: `http://127.0.0.1:${port}`,
         port,
         preferredPort: port,
@@ -1191,7 +1218,7 @@ export default function App() {
 
           <GatewayBar
             status={gateway}
-            busy={gatewayBusy}
+            busy={gatewaySettingsBusy}
             onToggle={(running) => void toggleGateway(running)}
           />
 
@@ -1224,6 +1251,8 @@ export default function App() {
             configPath={configPath}
             gatewayPort={gateway.preferredPort || 80}
             gatewayRunning={gateway.running}
+            gatewayAllowLAN={gateway.allowLan}
+            gatewaySettingsBusy={gatewaySettingsBusy}
             savingPort={savingGatewayPort}
             controlApi={controlApi}
             savingControlApiPort={savingControlApiPort}
@@ -1232,6 +1261,7 @@ export default function App() {
             onOpenChange={setSettingsOpen}
             onRevealConfig={() => void revealConfig()}
             onSaveGatewayPort={(port) => void saveGatewayPort(port)}
+            onSaveGatewayLAN={(allow) => void saveGatewayLAN(allow)}
             onSaveControlApiPort={(port) => void saveControlApiPort(port)}
             onRotateControlApiToken={() => void rotateApiToken()}
           />

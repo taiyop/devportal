@@ -7,6 +7,7 @@ import (
 )
 
 const hostnameSuffix = "devportal.localhost"
+const lanHostnameSuffix = "devportal.home.arpa"
 
 func fullHostname(label string) string {
 	if label == "" {
@@ -34,6 +35,10 @@ func publicAppURL(entry AppEntry, port *uint16, status AppStatus, gatewayPort ui
 }
 
 func hostLabelFromRequest(host string) string {
+	return hostLabelForSuffix(host, hostnameSuffix)
+}
+
+func hostLabelForSuffix(host, hostnameSuffix string) string {
 	h := strings.ToLower(strings.TrimSpace(host))
 	if h == "" {
 		return ""

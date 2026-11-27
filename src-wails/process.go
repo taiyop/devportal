@@ -74,8 +74,8 @@ type Portal struct {
 	inner                 Inner
 	gatewayMu             sync.Mutex
 	gateway               *http.Server
-	gatewayLn             net.Listener
-	gatewayLn4            net.Listener
+	gatewayListeners      []net.Listener
+	gatewayCancel         context.CancelFunc
 	gatewayListen         string
 	gatewayPort           uint16
 	gatewayNote           string

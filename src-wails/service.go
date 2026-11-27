@@ -101,6 +101,11 @@ func (s *PortalService) SetGatewayPort(port uint16) (GatewayStatus, error) {
 	return s.portal.GatewayStatus(), err
 }
 
+func (s *PortalService) SetGatewayAllowLAN(allow bool) (GatewayStatus, error) {
+	err := s.portal.SetGatewayAllowLAN(allow)
+	return s.portal.GatewayStatus(), err
+}
+
 func (s *PortalService) StopGateway() GatewayStatus {
 	s.portal.StopGateway()
 	return s.portal.GatewayStatus()
