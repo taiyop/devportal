@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Copy, ExternalLink } from "lucide-react";
+import { ChevronRight, Copy, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { PortalService } from "@/bindings/github.com/taiyop/devportal";
 import type {
@@ -9,12 +9,29 @@ import type {
   TailnetStatus,
 } from "@/bindings/github.com/taiyop/devportal";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { FieldGroup } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { copyText } from "@/lib/clipboard";
 import { asError } from "@/lib/error";
 import type { AppView } from "@/types";
+
+const defaultTailnetTag = "tag:devportal";
+
+function resolveDisplayTag(raw: string) {
+  const trimmed = raw.trim();
+  if (!trimmed) return defaultTailnetTag;
+  return /^tag:/i.test(trimmed) ? `tag:${trimmed.slice(4)}` : `tag:${trimmed}`;
+}
+
+function buildTagOwnersSnippet(tag: string) {
+  return `"tagOwners": {\n  "${tag}": ["autogroup:admin"],\n},`;
+}
 
 const privateApp: TailnetAppSettings = {
   enabled: false,
@@ -113,13 +130,15 @@ export function TailnetSettingsPanel({
     }
   }
 
-  async function copyURL(url: string) {
-    const copied = await copyText(url);
+  async function copySnippet(text: string, okMessage: string) {
+    const copied = await copyText(text);
     toast[copied ? "success" : "error"](
-      copied ? "URL をコピーしました" : "コピーできませんでした",
+      copied ? okMessage : "コピーできませんでした",
     );
   }
 
+  const activeTag = resolveDisplayTag(draft?.tag ?? "");
+  const tagOwnersSnippet = buildTagOwnersSnippet(activeTag);
   const deviceIds = draft?.deviceIds ?? [];
   const devices = status?.devices ?? [];
   const roster = new Map(devices.map((device) => [device.id, device]));
@@ -196,7 +215,9 @@ export function TailnetSettingsPanel({
                 size="icon-xs"
                 variant="ghost"
                 aria-label="ポータル URL をコピー"
-                onClick={() => void copyURL(status.portalUrl)}
+                onClick={() =>
+                  void copySnippet(status.portalUrl, "URL をコピーしました")
+                }
               >
                 <Copy />
               </Button>
@@ -226,8 +247,53 @@ export function TailnetSettingsPanel({
                 }
               />
               <p className="text-[12px] text-muted-foreground">
-                未入力時は <code className="font-mono">tag:devportal</code> です。事前に Tailscale 管理コンソールの ACL（<code className="font-mono">tagOwners</code>）でこのタグを定義してください。変更後は再ログインが必要です。
+                未入力時は <code className="font-mono">tag:devportal</code> です。事前に Tailscale 管理コンソールの Access Controls（<code className="font-mono">tagOwners</code>）でこのタグを定義してください。変更後は再ログインが必要です。
               </p>
+              <Collapsible className="pt-0.5">
+                <CollapsibleTrigger className="group inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground">
+                  <ChevronRight className="size-3.5 transition-transform group-data-[panel-open]:rotate-90" />
+                  Tailscale 側の tagOwners 設定例を見る
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2 space-y-2 rounded-md border border-border bg-muted/40 p-2.5 text-[12px] text-muted-foreground">
+                  <p>
+                    Tailscale 管理コンソールの{" "}
+                    <strong className="font-medium text-foreground">
+                      Access Controls
+                    </strong>
+                    （JSON エディタ）に以下を追加して保存します。
+                  </p>
+                  <div className="relative rounded-md border border-border bg-background/80">
+                    <pre className="overflow-x-auto p-2.5 pr-9 font-mono text-[11px] leading-relaxed text-foreground">
+                      <code>{tagOwnersSnippet}</code>
+                    </pre>
+                    <Button
+                      type="button"
+                      size="icon-xs"
+                      variant="ghost"
+                      className="absolute top-1.5 right-1.5"
+                      aria-label="tagOwners の設定例をコピー"
+                      onClick={() =>
+                        void copySnippet(
+                          tagOwnersSnippet,
+                          "tagOwners の設定例をコピーしました",
+                        )
+                      }
+                    >
+                      <Copy />
+                    </Button>
+                  </div>
+                  <p className="text-[11px] leading-relaxed">
+                    すでに <code className="font-mono">tagOwners</code>{" "}
+                    がある場合は、その中に{" "}
+                    <code className="font-mono">
+                      &quot;{activeTag}&quot;: [&quot;autogroup:admin&quot;],
+                    </code>{" "}
+                    の行だけを追加してください。管理者以外のユーザーでログインする場合は{" "}
+                    <code className="font-mono">&quot;autogroup:admin&quot;</code>{" "}
+                    の代わりにそのメールアドレスを指定します。
+                  </p>
+                </CollapsibleContent>
+              </Collapsible>
             </div>
 
             <fieldset

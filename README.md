@@ -81,7 +81,12 @@ http://<アプリ名>.devportal.localhost
 
 ### 3. Tailscale で別端末から使う
 
-1. Tailscale 管理コンソールで [MagicDNS と HTTPS 証明書](https://tailscale.com/docs/how-to/set-up-https-certificates) を有効にし、Access Controls（ACL）の `tagOwners` に DevPortal 用のタグ（初期値 `tag:devportal`）を定義します。
+1. Tailscale 管理コンソールで [MagicDNS と HTTPS 証明書](https://tailscale.com/docs/how-to/set-up-https-certificates) を有効にし、Access Controls（JSON エディタ）の `tagOwners` に DevPortal 用のタグ（初期値 `tag:devportal`）を定義します。
+   ```json
+   "tagOwners": {
+     "tag:devportal": ["autogroup:admin"],
+   },
+   ```
 2. DevPortal の **設定 → Tailscale** で「Tailnet で公開する」にチェックを入れ、必要に応じて**マシンのタグ**を変更して保存します。表示されたログインボタンで、DevPortal をタグ付きマシン（非ユーザー端末）の `devportal` ノードとして Tailnet に追加します。
 3. **アクセスを許可する端末**と**公開するアプリ**を選んで保存します。アプリごとに許可端末をさらに絞れます。初期設定では公開が無効で、許可端末と公開アプリは空です。
 4. 許可した端末を Tailscale に接続し、設定画面に表示された `https://devportal.<tailnet>.ts.net` を開きます。一覧からアプリを起動・停止でき、アプリのリンクを開くと必要に応じて自動起動します。
