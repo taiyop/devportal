@@ -6,7 +6,7 @@ Thank you for your interest in contributing to DevPortal! We welcome bug reports
 
 ### Prerequisites
 
-- **Go**: 1.25+ (required for backend)
+- **Go**: 1.27.4+ (required for backend)
 - **Node.js / Bun**: Node.js 20+ or [Bun](https://bun.sh/) (recommended)
 - **Wails v3 CLI**: [Wails v3 beta](https://v3alpha.wails.io/)
 

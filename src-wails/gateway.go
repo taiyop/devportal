@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -390,39 +391,81 @@ func (p *Portal) handleGateway(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "DevPortal: このホストに対応するアプリがありません\n", http.StatusNotFound)
 		return
 	}
+	p.proxyApp(w, r, entry.ID, running, false)
+}
+
+func (p *Portal) proxyApp(w http.ResponseWriter, r *http.Request, id string, running, tailnet bool) {
 	if !running {
-		view, err := p.start(entry.ID, false)
+		view, err := p.startWithContext(r.Context(), id, false)
 		if err != nil {
-			http.Error(w, "DevPortal: "+err.Error()+"\n", http.StatusServiceUnavailable)
+			proxyAppError(w, "アプリを起動できませんでした", err, http.StatusServiceUnavailable, tailnet)
 			return
 		}
 		p.emitStatus(view)
 	}
-	port, err := p.waitReady(entry.ID, readyWait)
+	port, err := p.waitReady(r.Context(), id, readyWait)
 	if err != nil {
-		http.Error(w, "DevPortal: "+err.Error()+"\n", http.StatusGatewayTimeout)
+		proxyAppError(w, "アプリの起動を確認できませんでした", err, http.StatusGatewayTimeout, tailnet)
 		return
 	}
-	p.beginProxy(entry.ID)
-	defer p.endProxy(entry.ID)
+	p.beginProxy(id)
+	defer p.endProxy(id)
 	backend, _ := url.Parse(loopbackURL(loopbackHost(port), port))
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(backend)
-			pr.Out.Host = pr.In.Host
+			if tailnet {
+				// Pass the public URL in forwarding headers so a local dev server can
+				// keep its loopback Host checks enabled.
+				pr.SetXForwarded()
+				for header := range pr.Out.Header {
+					if strings.HasPrefix(strings.ToLower(header), "tailscale-") {
+						delete(pr.Out.Header, header)
+					}
+				}
+			} else {
+				pr.Out.Host = pr.In.Host
+			}
 		},
 		FlushInterval: 100 * time.Millisecond,
 		ErrorHandler: func(rw http.ResponseWriter, _ *http.Request, proxyErr error) {
-			http.Error(rw, "DevPortal: 転送に失敗しました\n"+proxyErr.Error()+"\n", http.StatusBadGateway)
+			proxyAppError(rw, "転送に失敗しました", proxyErr, http.StatusBadGateway, tailnet)
 		},
+	}
+	if tailnet {
+		proxy.ModifyResponse = func(response *http.Response) error {
+			location, err := url.Parse(response.Header.Get("Location"))
+			if err == nil && location.Scheme == backend.Scheme && location.Host == backend.Host && location.User == nil {
+				location.Scheme = "https"
+				location.Host = r.Host
+				response.Header.Set("Location", location.String())
+			}
+			return nil
+		}
 	}
 	proxy.ServeHTTP(w, r)
 }
 
-func (p *Portal) waitReady(id string, timeout time.Duration) (uint16, error) {
+func proxyAppError(w http.ResponseWriter, message string, err error, status int, tailnet bool) {
+	if !tailnet {
+		if status == http.StatusBadGateway {
+			message += "\n" + err.Error() + "\n"
+		} else {
+			message = err.Error() + "\n"
+		}
+	}
+	http.Error(w, "DevPortal: "+message, status)
+}
+
+func (p *Portal) waitReady(ctx context.Context, id string, timeout time.Duration) (uint16, error) {
 	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
 	var port uint16
 	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
 		inner := p.lock()
 		rt, ok := inner.runtime[id]
 		errMsg := inner.errors[id]
@@ -439,7 +482,11 @@ func (p *Portal) waitReady(id string, timeout time.Duration) (uint16, error) {
 		if ready || isOpen(port) {
 			return port, nil
 		}
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-ticker.C:
+		}
 	}
 	return 0, errString(fmt.Sprintf("ポート %d の起動が時間切れになりました", port))
 }

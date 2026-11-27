@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import type { ControlAPIStatus, UpdateChannel } from "@/api";
 import { StatusLed } from "@/components/status-badge";
+import { TailnetSettingsPanel } from "@/components/tailnet-settings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
@@ -39,10 +40,12 @@ import {
   isPrereleaseVersion,
   type AppUpdater,
 } from "@/lib/updater";
-import type { AppStatus } from "@/types";
+import type { AppStatus, AppView } from "@/types";
 
 export function SettingsDialog({
   open,
+  apps,
+  preview,
   configPath,
   gatewayPort,
   gatewayRunning,
@@ -58,6 +61,8 @@ export function SettingsDialog({
   onRotateControlApiToken,
 }: {
   open: boolean;
+  apps: AppView[];
+  preview: boolean;
   configPath: string;
   gatewayPort: number;
   gatewayRunning: boolean;
@@ -150,7 +155,7 @@ export function SettingsDialog({
             設定
           </DialogTitle>
           <DialogDescription className="text-[12px]">
-            リバースプロキシ、ローカル API、アップデート、設定ファイルの場所です。
+            リバースプロキシ、Tailscale、ローカル API、アップデートを設定できます。
           </DialogDescription>
         </DialogHeader>
 
@@ -195,6 +200,8 @@ export function SettingsDialog({
               </FieldGroup>
             </form>
           </section>
+
+          {open ? <TailnetSettingsPanel apps={apps} preview={preview} /> : null}
 
           <section className="flex flex-col gap-2">
             <div className="flex items-center gap-2 px-1">

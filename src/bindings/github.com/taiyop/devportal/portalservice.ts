@@ -41,6 +41,14 @@ export function GetLogs(id: string): $CancellablePromise<$models.LogEvent[] | nu
     return $Call.ByID(3985295442, id);
 }
 
+export function GetTailnetSettings(): $CancellablePromise<$models.TailnetSettings> {
+    return $Call.ByID(3995232559);
+}
+
+export function GetTailnetStatus(): $CancellablePromise<$models.TailnetStatus> {
+    return $Call.ByID(2687526068);
+}
+
 export function GetUpdateChannel(): $CancellablePromise<$models.UpdateChannel> {
     return $Call.ByID(521040195);
 }
@@ -59,6 +67,10 @@ export function OpenAppURL(raw: string): $CancellablePromise<void> {
 
 export function OpenConfigPath(): $CancellablePromise<void> {
     return $Call.ByID(1086019818);
+}
+
+export function OpenTailnetURL(login: boolean): $CancellablePromise<void> {
+    return $Call.ByID(755487765, login);
 }
 
 export function PickFolder(): $CancellablePromise<string> {
@@ -95,6 +107,10 @@ export function SetGatewayPort(port: number): $CancellablePromise<$models.Gatewa
 
 export function SetPinned(id: string, pinned: boolean): $CancellablePromise<$models.AppView> {
     return $Call.ByID(1478943487, id, pinned);
+}
+
+export function SetTailnetSettings(settings: $models.TailnetSettings): $CancellablePromise<$models.TailnetSettings> {
+    return $Call.ByID(2573640387, settings);
 }
 
 export function SetUpdateChannel(channel: string): $CancellablePromise<$models.UpdateChannel> {

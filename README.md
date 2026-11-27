@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
-  <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go" alt="Go">
+  <img src="https://img.shields.io/badge/Go-1.27.4+-00ADD8?logo=go" alt="Go">
   <img src="https://img.shields.io/badge/Wails-v3--beta-DF1C24?logo=wails" alt="Wails">
   <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react" alt="React">
   <img src="https://img.shields.io/badge/platform-macOS-lightgrey.svg" alt="Platform">
@@ -75,6 +75,17 @@ http://<アプリ名>.devportal.localhost
 - コマンド例: `vite --port {port} --host 127.0.0.1`
 - 環境変数例: `API_URL=http://127.0.0.1:{backendPort:api}`
 
+### 3. Tailscale で別端末から使う
+
+1. Tailscale 管理コンソールで [MagicDNS と HTTPS 証明書](https://tailscale.com/docs/how-to/set-up-https-certificates) を有効にします。
+2. DevPortal の **設定 → Tailscale** で「Tailnet で公開する」にチェックを入れて保存します。表示されたログインボタンで、DevPortal を `devportal` ノードとして Tailnet に追加します。
+3. **アクセスを許可する端末**と**公開するアプリ**を選んで保存します。アプリごとに許可端末をさらに絞れます。初期設定では公開が無効で、許可端末と公開アプリは空です。
+4. 許可した端末を Tailscale に接続し、設定画面に表示された `https://devportal.<tailnet>.ts.net` を開きます。一覧からアプリを起動・停止でき、アプリのリンクを開くと必要に応じて自動起動します。
+
+登録や実行コマンドの変更は、デスクトップ側で行います。Tailnet 側の [Grants](https://tailscale.com/docs/features/access-control/grants/grants-explained) を設定している場合は、許可端末から DevPortal ノードへの TCP `443` と、設定画面に表示される公開アプリの TCP ポートを許可してください。
+
+アプリの URL は同じホスト名の別ポートに分かれます。Cookie はポートで分離されないため、複数のアプリが同じ Cookie 名を使う場合はアプリ側で名前を分けてください。DevPortal の許可設定が適用されるのは、この Tailnet の公開 URL です。
+
 ---
 
 ## 動作要件 (Prerequisites)
@@ -82,7 +93,7 @@ http://<アプリ名>.devportal.localhost
 開発またはソースコードからビルドする場合の要件です。
 
 - **OS**: macOS 13 (Ventura) 以上 (Apple Silicon / Intel)
-- **Go**: 1.25 以上
+- **Go**: 1.27.4 以上
 - **Bun** (推奨) または **Node.js**: 20 以上
 - **Wails CLI v3**:
   ```bash

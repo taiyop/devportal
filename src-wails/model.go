@@ -147,6 +147,7 @@ type ConfigFile struct {
 	GatewayPort    *uint16         `json:"gatewayPort" yaml:"gatewayPort,omitempty"`
 	ControlAPIPort *uint16         `json:"controlApiPort" yaml:"controlApiPort,omitempty"`
 	UpdateChannel  UpdateChannel   `json:"updateChannel" yaml:"updateChannel,omitempty"`
+	Tailnet        TailnetConfig   `json:"-" yaml:"tailnet,omitempty"`
 	Categories     []CategoryEntry `json:"categories" yaml:"categories,omitempty"`
 	Apps           []AppEntry      `json:"apps" yaml:"apps"`
 }

@@ -22,5 +22,9 @@ export type {
     ControlAPIStatus,
     EnvVar,
     GatewayStatus,
-    LogEvent
+    LogEvent,
+    TailnetAppSettings,
+    TailnetDevice,
+    TailnetSettings,
+    TailnetStatus
 } from "./models.js";

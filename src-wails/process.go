@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -56,14 +57,16 @@ func (rt *Runtime) wait() error {
 }
 
 type Inner struct {
-	configPath  string
-	runningPath string
-	file        ConfigFile
-	runtime     map[string]*Runtime
-	logs        map[string][]LogEvent
-	errors      map[string]string
-	gatewayPort uint16
-	favicons    map[string]string
+	configPath          string
+	runningPath         string
+	file                ConfigFile
+	runtime             map[string]*Runtime
+	logs                map[string][]LogEvent
+	errors              map[string]string
+	gatewayPort         uint16
+	favicons            map[string]string
+	tailnetPolicy       context.Context
+	cancelTailnetPolicy context.CancelFunc
 }
 
 type Portal struct {
@@ -85,6 +88,9 @@ type Portal struct {
 	controlNote           string
 	controlErr            string
 	controlInfoPath       string
+	tailnetMu             sync.Mutex
+	tailnet               *tailnetSession
+	tailnetClosed         bool
 	EmitStatus            func(AppView)
 	EmitLog               func(LogEvent)
 	EmitGateway           func(GatewayStatus)
@@ -402,25 +408,38 @@ func (p *Portal) Delete(id string) error {
 		return errString("実行中のアプリは削除できません。先に終了してください。")
 	}
 	before := len(inner.file.Apps)
-	next := inner.file.Apps[:0]
+	next := make([]AppEntry, 0, before)
 	for _, app := range inner.file.Apps {
 		if app.ID != id {
 			next = append(next, app)
 		}
 	}
-	inner.file.Apps = next
-	if len(inner.file.Apps) == before {
+	if len(next) == before {
 		p.unlock()
 		return errString("アプリが見つかりません")
+	}
+	file := inner.file
+	file.Apps = next
+	_, published := file.Tailnet.Apps[id]
+	if published {
+		file.Tailnet.Apps = maps.Clone(file.Tailnet.Apps)
+		delete(file.Tailnet.Apps, id)
+	}
+	if err := saveConfig(inner.configPath, file); err != nil {
+		p.unlock()
+		return err
+	}
+	inner.file = file
+	if published {
+		inner.invalidateTailnetPolicy()
 	}
 	delete(inner.logs, id)
 	delete(inner.errors, id)
 	delete(inner.favicons, id)
 	removeFaviconFile(inner.configPath, id)
-	err := saveConfig(inner.configPath, inner.file)
 	p.unlock()
-	if err != nil {
-		return err
+	if published {
+		p.syncTailnet()
 	}
 	p.emitAppsChanged()
 	return nil
@@ -468,7 +487,15 @@ func (p *Portal) Start(id string) (AppView, error) {
 }
 
 func (p *Portal) start(id string, pinned bool) (AppView, error) {
+	return p.startWithContext(context.Background(), id, pinned)
+}
+
+func (p *Portal) startWithContext(ctx context.Context, id string, pinned bool) (AppView, error) {
 	inner := p.lock()
+	if err := ctx.Err(); err != nil {
+		p.unlock()
+		return AppView{}, err
+	}
 	if rt, ok := inner.runtime[id]; ok {
 		if pinned {
 			rt.pinned = true
@@ -508,6 +535,10 @@ func (p *Portal) start(id string, pinned bool) (AppView, error) {
 	}
 
 	inner = p.lock()
+	if err := ctx.Err(); err != nil {
+		p.unlock()
+		return AppView{}, err
+	}
 	if rt, ok := inner.runtime[id]; ok {
 		if pinned {
 			rt.pinned = true
@@ -776,7 +807,15 @@ func (p *Portal) reapIdle() {
 }
 
 func (p *Portal) Stop(id string) (AppView, error) {
+	return p.stopWithContext(context.Background(), id)
+}
+
+func (p *Portal) stopWithContext(ctx context.Context, id string) (AppView, error) {
 	inner := p.lock()
+	if err := ctx.Err(); err != nil {
+		p.unlock()
+		return AppView{}, err
+	}
 	if rt, ok := inner.runtime[id]; ok {
 		delete(inner.runtime, id)
 		_ = unregisterRunning(inner.runningPath, id)

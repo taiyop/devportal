@@ -1219,6 +1219,8 @@ export default function App() {
         <>
           <SettingsDialog
             open={settingsOpen}
+            apps={apps}
+            preview={preview}
             configPath={configPath}
             gatewayPort={gateway.preferredPort || 80}
             gatewayRunning={gateway.running}

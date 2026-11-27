@@ -123,6 +123,34 @@ export enum PortMode {
     PortModeManual = "manual",
 };
 
+export interface TailnetAppSettings {
+    "enabled": boolean;
+    "port": number;
+    "restrictDevices": boolean;
+    "deviceIds": string[] | null;
+}
+
+export interface TailnetDevice {
+    "id": string;
+    "name": string;
+    "dns": string;
+    "online": boolean;
+}
+
+export interface TailnetSettings {
+    "enabled": boolean;
+    "deviceIds": string[] | null;
+    "apps": { [_ in string]?: TailnetAppSettings } | null;
+}
+
+export interface TailnetStatus {
+    "state": string;
+    "portalUrl": string;
+    "loginUrl": string;
+    "error": string;
+    "devices": TailnetDevice[] | null;
+}
+
 export enum UpdateChannel {
     /**
      * The Go zero value for the underlying type of the enum.

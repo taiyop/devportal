@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -45,6 +46,7 @@ func (s *PortalService) ServiceStartup(_ context.Context, _ application.ServiceO
 	if err := s.portal.StartControlAPI(); err != nil {
 		log.Printf("control api: %v", err)
 	}
+	s.portal.syncTailnet()
 	pollCtx, cancel := context.WithCancel(context.Background())
 	s.stopPoll = cancel
 	go pollForUpdates(pollCtx, s.app)
@@ -53,6 +55,31 @@ func (s *PortalService) ServiceStartup(_ context.Context, _ application.ServiceO
 
 func (s *PortalService) GetControlAPIStatus() ControlAPIStatus {
 	return s.portal.ControlAPIStatus()
+}
+
+func (s *PortalService) GetTailnetSettings() TailnetSettings {
+	return s.portal.tailnetSettings()
+}
+
+func (s *PortalService) SetTailnetSettings(settings TailnetSettings) (TailnetSettings, error) {
+	return s.portal.setTailnetSettings(settings)
+}
+
+func (s *PortalService) GetTailnetStatus() TailnetStatus {
+	return s.portal.tailnetStatus()
+}
+
+func (s *PortalService) OpenTailnetURL(login bool) error {
+	status := s.portal.tailnetStatus()
+	raw := status.PortalURL
+	if login {
+		raw = status.LoginURL
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return errString("Tailscale の URL がまだ利用できません")
+	}
+	return s.app.Browser.OpenURL(parsed.String())
 }
 
 func (s *PortalService) SetControlAPIPort(port uint16) (ControlAPIStatus, error) {
