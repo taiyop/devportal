@@ -725,7 +725,9 @@ export default function App() {
     }
     try {
       const cat = await upsertCategory(null, name, "");
-      setCategories((current) => [...current, cat]);
+      setCategories((current) =>
+        current.some((item) => item.id === cat.id) ? current : [...current, cat],
+      );
       return true;
     } catch (error) {
       toast.error(asError(error));
