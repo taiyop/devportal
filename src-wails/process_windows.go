@@ -63,6 +63,11 @@ func processAlive(pid uint32) bool {
 	return status == syscall.WAIT_TIMEOUT
 }
 
+func processGroupAlive(pgid int) bool {
+	_ = pgid
+	return false
+}
+
 func terminateProcess(cmd *exec.Cmd, pgid int) {
 	signalTerm(cmd, pgid)
 	var pid uint32

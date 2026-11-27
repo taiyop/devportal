@@ -13,7 +13,11 @@ import (
 )
 
 func withParentWatchdog(command string) string {
-	return "set +m 2>/dev/null || :; exec 3<&0; exec < /dev/null; WATCH_PID=$$; (cat <&3 >/dev/null 2>/dev/null; /bin/kill -TERM -- -$WATCH_PID 2>/dev/null; sleep 1; /bin/kill -KILL -- -$WATCH_PID 2>/dev/null) & exec " + command
+	return "set +m 2>/dev/null || :; exec 3<&0; exec < /dev/null; _DEVPORTAL_PGID=$$; (cat <&3 >/dev/null 2>/dev/null; /bin/kill -TERM -- -$_DEVPORTAL_PGID 2>/dev/null; sleep 1; /bin/kill -KILL -- -$_DEVPORTAL_PGID 2>/dev/null) >/dev/null 2>&1 & _DEVPORTAL_WATCHDOG=$!; exec 3<&-\n" +
+		command + "\n" +
+		"_DEVPORTAL_STATUS=$?\n" +
+		"/bin/kill -TERM \"$_DEVPORTAL_WATCHDOG\" 2>/dev/null || :\n" +
+		"exit \"$_DEVPORTAL_STATUS\""
 }
 
 func isolateProcessGroup(cmd *exec.Cmd) {
@@ -64,6 +68,14 @@ func processAlive(pid uint32) bool {
 	return err != syscall.ESRCH
 }
 
+func processGroupAlive(pgid int) bool {
+	if pgid <= 1 {
+		return false
+	}
+	err := syscall.Kill(-pgid, 0)
+	return err != syscall.ESRCH
+}
+
 func terminateProcess(cmd *exec.Cmd, pgid int) {
 	signalTerm(cmd, pgid)
 	var pid uint32
@@ -72,12 +84,12 @@ func terminateProcess(cmd *exec.Cmd, pgid int) {
 	}
 	deadline := time.Now().Add(250 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if !processAlive(pid) {
+		if !processAlive(pid) && !processGroupAlive(pgid) {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if processAlive(pid) {
+	if processAlive(pid) || processGroupAlive(pgid) {
 		signalKill(cmd, pgid)
 	}
 }

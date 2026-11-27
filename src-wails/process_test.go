@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,7 +43,10 @@ func listenAndBlockForTest() int {
 
 func TestCommandWithEnv(t *testing.T) {
 	wrapped := commandWithEnv("npm run dev", 5173, []EnvVar{{Name: "HOST", Value: "127.0.0.1"}})
-	want := "env HOSTNAME='127.0.0.1' HOST='127.0.0.1' PORT='5173' DEVPORTAL_PORT='5173' npm run dev"
+	want := "export HOSTNAME='127.0.0.1' HOST='127.0.0.1' PORT='5173' DEVPORTAL_PORT='5173'; npm run dev"
+	if isWindows() {
+		want = "npm run dev"
+	}
 	if wrapped != want {
 		t.Fatalf("got %q want %q", wrapped, want)
 	}
@@ -796,4 +800,175 @@ func pathListContainsDir(pathVal, dir string) bool {
 		}
 	}
 	return false
+}
+
+func TestSpawnCompoundCommandRunsAllPartsAndExportsEnv(t *testing.T) {
+	if isWindows() {
+		t.Skip("unix shell semantics")
+	}
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(dir, "marker.txt")
+	command := "printf 'step1\\n' > " + shSingleQuote(marker) +
+		" && cd sub && printf 'step2:%s:%s:%s\\n' \"$PORT\" \"$CUSTOM_VAR\" \"{port}\" >> " + shSingleQuote(marker)
+	cmd, keepalive, pgid, stdout, stderr, err := spawnCommand(
+		dir,
+		command,
+		43210,
+		[]EnvVar{{Name: "CUSTOM_VAR", Value: "hello"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdout.Close()
+	defer stderr.Close()
+	rt := &Runtime{cmd: cmd, pgid: pgid, keepalive: keepalive, waitCh: make(chan struct{})}
+	go func() { _ = rt.wait() }()
+	select {
+	case <-rt.waitCh:
+	case <-time.After(4 * time.Second):
+		terminateRuntime(rt)
+		t.Fatal("compound command did not exit")
+	}
+	terminateRuntime(rt)
+	body, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("marker not written: %v", err)
+	}
+	want := "step1\nstep2:43210:hello:43210\n"
+	if string(body) != want {
+		t.Fatalf("marker = %q, want %q", string(body), want)
+	}
+}
+
+func TestSpawnCompoundCommandWithExecListensAndReleasesPort(t *testing.T) {
+	if isWindows() {
+		t.Skip("unix shell semantics")
+	}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "built.txt")
+	helper, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := findFreePort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := "printf 'built' > " + shSingleQuote(marker) + " && exec " + shSingleQuote(helper)
+	cmd, keepalive, pgid, stdout, stderr, err := spawnCommand(
+		dir,
+		command,
+		port,
+		[]EnvVar{{Name: "DEVPORTAL_TEST_LISTEN", Value: "1"}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdout.Close()
+	defer stderr.Close()
+	rt := &Runtime{cmd: cmd, port: port, pgid: pgid, keepalive: keepalive, waitCh: make(chan struct{})}
+	go func() { _ = rt.wait() }()
+	deadline := time.Now().Add(4 * time.Second)
+	for !isOpen(port) {
+		select {
+		case <-rt.waitCh:
+			terminateRuntime(rt)
+			t.Fatal("compound exec listener exited before listening")
+		default:
+		}
+		if time.Now().After(deadline) {
+			terminateRuntime(rt)
+			t.Fatal("compound exec listener did not listen")
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	body, err := os.ReadFile(marker)
+	if err != nil || string(body) != "built" {
+		terminateRuntime(rt)
+		t.Fatalf("first part did not run: body=%q err=%v", string(body), err)
+	}
+	terminateRuntime(rt)
+	if !isFree(port) {
+		t.Fatal("listen port should be free after terminate")
+	}
+	if processGroupAlive(pgid) {
+		t.Fatalf("process group %d should not remain alive after terminate", pgid)
+	}
+}
+
+func TestTerminateCompoundCommandKillsGrandchildren(t *testing.T) {
+	if isWindows() {
+		t.Skip("process groups are unix-oriented")
+	}
+	dir := t.TempDir()
+	pidFile := filepath.Join(dir, "child.pid")
+	command := "true && (sleep 30 & echo $! > " + shSingleQuote(pidFile) + "; wait)"
+	cmd, keepalive, pgid, stdout, stderr, err := spawnCommand(dir, command, 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdout.Close()
+	defer stderr.Close()
+	rt := &Runtime{cmd: cmd, pgid: pgid, keepalive: keepalive, waitCh: make(chan struct{})}
+	go func() { _ = rt.wait() }()
+
+	var childPID uint32
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		raw, readErr := os.ReadFile(pidFile)
+		if readErr == nil {
+			n, convErr := strconv.Atoi(strings.TrimSpace(string(raw)))
+			if convErr == nil && n > 0 {
+				childPID = uint32(n)
+				break
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if childPID == 0 {
+		terminateRuntime(rt)
+		t.Fatal("grandchild pid was not recorded")
+	}
+	if !processAlive(childPID) {
+		terminateRuntime(rt)
+		t.Fatalf("grandchild %d should be alive before terminate", childPID)
+	}
+
+	terminateRuntime(rt)
+
+	deadline = time.Now().Add(3 * time.Second)
+	for processAlive(childPID) || processGroupAlive(pgid) {
+		if time.Now().After(deadline) {
+			t.Fatalf("grandchild %d or pgid %d remained alive after terminate", childPID, pgid)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestSpawnCompoundCommandPreservesExitCode(t *testing.T) {
+	if isWindows() {
+		t.Skip("unix shell semantics")
+	}
+	cmd, keepalive, pgid, stdout, stderr, err := spawnCommand(os.TempDir(), "true && sh -c 'exit 7'", 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdout.Close()
+	defer stderr.Close()
+	rt := &Runtime{cmd: cmd, pgid: pgid, keepalive: keepalive, waitCh: make(chan struct{})}
+	go func() { _ = rt.wait() }()
+	select {
+	case <-rt.waitCh:
+	case <-time.After(4 * time.Second):
+		terminateRuntime(rt)
+		t.Fatal("command did not exit")
+	}
+	terminateRuntime(rt)
+	if rt.cmd.ProcessState == nil || rt.cmd.ProcessState.ExitCode() != 7 {
+		t.Fatalf("exit code = %v, want 7", rt.cmd.ProcessState)
+	}
 }

@@ -901,7 +901,11 @@ func (p *Portal) handleChildExit(id string) {
 		_ = rt.keepalive.Close()
 		rt.keepalive = nil
 	}
+	pgid := rt.pgid
 	p.unlock()
+	if processGroupAlive(pgid) {
+		terminateProcess(nil, pgid)
+	}
 	for _, backend := range backends {
 		terminateRuntime(backend)
 	}
@@ -936,7 +940,14 @@ func (p *Portal) handleCompanionExit(id string, companion *Runtime, label string
 		_ = companion.keepalive.Close()
 		companion.keepalive = nil
 	}
+	companionPgid := 0
+	if companion != nil {
+		companionPgid = companion.pgid
+	}
 	p.unlock()
+	if processGroupAlive(companionPgid) {
+		terminateProcess(nil, companionPgid)
+	}
 	terminateRuntime(rt)
 	p.emitView(id)
 }
@@ -1177,6 +1188,10 @@ func commandWithEnv(command string, port uint16, envVars []EnvVar) string {
 func commandWithPorts(command string, ports portInject, envVars []EnvVar) string {
 	ports = ports.resolved()
 	pmap := ports.portMap()
+	injected := injectPortMap(command, pmap)
+	if isWindows() {
+		return injected
+	}
 	assignments := make([]string, 0, len(envVars)+6+len(ports.backends)*2)
 	assignments = append(assignments, loopbackEnvAssignments(envVars)...)
 	for _, v := range envVars {
@@ -1189,7 +1204,7 @@ func commandWithPorts(command string, ports portInject, envVars []EnvVar) string
 		}
 		assignments = append(assignments, name+"="+shSingleQuote(value))
 	}
-	return "env " + strings.Join(assignments, " ") + " " + injectPortMap(command, pmap)
+	return "export " + strings.Join(assignments, " ") + "; " + injected
 }
 
 func portEnvAssignments(ports portInject) []string {
@@ -1221,7 +1236,8 @@ func shSingleQuote(value string) string {
 // GUI apps do not source .zshrc/.bashrc, so version managers like nodenv are
 // missing from PATH. We load the user's login+interactive shell once per spawn
 // to copy that environment, then still run the command under /bin/sh so the
-// POSIX parent-watchdog (background job + exec) is not subject to zsh job control.
+// POSIX parent-watchdog (background job in the isolated process group) is not
+// subject to zsh job control.
 const loginShellDump = "command -v printenv >/dev/null 2>&1 && printenv || env"
 
 func shellCommand(command string) *exec.Cmd {
@@ -1389,6 +1405,7 @@ func terminateRuntime(rt *Runtime) {
 		_ = rt.keepalive.Close()
 		rt.keepalive = nil
 	}
+	go func() { _ = rt.wait() }()
 	terminateProcess(rt.cmd, rt.pgid)
 	_ = rt.wait()
 	releaseListenPort(rt.port, rt.pgid)

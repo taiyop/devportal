@@ -140,7 +140,7 @@ func waitPending(w io.Writer, pending []*shutdownItem, timeout time.Duration, fo
 	for len(pending) > 0 && time.Now().Before(deadline) {
 		next := pending[:0]
 		for _, item := range pending {
-			if item.rt.finished() || !processAlive(item.pid) {
+			if (item.rt.finished() || !processAlive(item.pid)) && !processGroupAlive(item.pgid) {
 				if forced {
 					shutdownLog(w, "  [ok] %-24s  強制終了を確認しました", item.name)
 				} else {
