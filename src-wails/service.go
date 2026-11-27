@@ -169,6 +169,10 @@ func (s *PortalService) ReorderApps(ids []string) ([]AppView, error) {
 	return s.portal.Reorder(ids)
 }
 
+func (s *PortalService) SetBoardPinned(id string, pinned bool) error {
+	return s.portal.SetBoardPinned(id, pinned)
+}
+
 func (s *PortalService) ListCategories() ([]CategoryEntry, error) {
 	return s.portal.Categories(), nil
 }

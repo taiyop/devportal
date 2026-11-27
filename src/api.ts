@@ -71,6 +71,10 @@ export async function reorderApps(ids: string[]): Promise<AppView[]> {
   return ((await PortalService.ReorderApps(ids)) ?? []).map(asAppView);
 }
 
+export async function setBoardPinned(id: string, pinned: boolean): Promise<void> {
+  await PortalService.SetBoardPinned(id, pinned);
+}
+
 export async function listCategories(): Promise<Category[]> {
   return ((await PortalService.ListCategories()) ?? []).map(asCategory);
 }
@@ -341,6 +345,7 @@ function asAppView(app: BoundAppView): AppView {
     portEnv: app.portEnv ?? "",
     wakeOnRequest: app.wakeOnRequest,
     idleStopMin: app.idleStopMin ?? 0,
+    boardPinned: Boolean(app.boardPinned),
     pinned: Boolean(app.pinned),
     idleUntil: app.idleUntil ?? null,
     env: app.env ?? [],

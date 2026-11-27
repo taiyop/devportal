@@ -45,6 +45,7 @@ import {
   reorderApps,
   reorderCategories,
   rotateControlAPIToken,
+  setBoardPinned,
   setControlAPIPort,
   setGatewayPort,
   setPinned,
@@ -293,30 +294,21 @@ export default function App() {
     });
   }, [apps, filter, query, categoriesById]);
 
-  const groupedApps = useMemo(() => {
-    if (categories.length === 0) {
-      return [{ id: "", name: "", apps: visibleApps }];
-    }
-    const groups = categories.map((cat) => ({
-      id: cat.id,
-      name: cat.name,
-      apps: [] as AppView[],
-    }));
-    const byId = new Map(groups.map((group) => [group.id, group]));
-    const uncategorized = { id: "", name: "未分類", apps: [] as AppView[] };
+  const orderedApps = useMemo(() => {
+    const pinned: AppView[] = [];
+    const groups = new Map<string, AppView[]>(
+      categories.map(({ id }) => [id, []]),
+    );
+    const uncategorized: AppView[] = [];
     for (const app of visibleApps) {
-      (byId.get(app.categoryId) ?? uncategorized).apps.push(app);
+      if (app.boardPinned) {
+        pinned.push(app);
+      } else {
+        (groups.get(app.categoryId) ?? uncategorized).push(app);
+      }
     }
-    return [
-      ...groups.filter((group) => group.apps.length > 0),
-      ...(uncategorized.apps.length > 0 ? [uncategorized] : []),
-    ];
+    return [...pinned, ...Array.from(groups.values()).flat(), ...uncategorized];
   }, [visibleApps, categories]);
-
-  const orderedApps = useMemo(
-    () => groupedApps.flatMap((group) => group.apps),
-    [groupedApps],
-  );
 
   const confirmApp = apps.find((app) => app.id === confirmId) ?? null;
   const logApp = apps.find((app) => app.id === logAppId) ?? null;
@@ -498,6 +490,7 @@ export default function App() {
           portEnv: form.portEnv,
           wakeOnRequest: form.wakeOnRequest,
           idleStopMin: form.idleStopMin,
+          boardPinned: editApp?.boardPinned ?? false,
           pinned: false,
           idleUntil: null,
           env: form.env.filter((row) => row.name),
@@ -602,6 +595,19 @@ export default function App() {
     }
   }
 
+  async function pinBoardApp(id: string, pinned: boolean) {
+    try {
+      if (!preview) await setBoardPinned(id, pinned);
+      setApps((current) =>
+        current.map((app) =>
+          app.id === id ? { ...app, boardPinned: pinned } : app,
+        ),
+      );
+    } catch (error) {
+      toast.error(asError(error));
+    }
+  }
+
   async function pinApp(app: AppView, pinned: boolean) {
     if (preview) {
       const next: AppView = {
@@ -673,7 +679,7 @@ export default function App() {
     const target = apps.find((item) => item.id === targetId);
     if (!dragged || !target) return;
     let next = apps;
-    if (dragged.categoryId !== target.categoryId) {
+    if (!dragged.boardPinned && dragged.categoryId !== target.categoryId) {
       next = apps.map((item) =>
         item.id === id ? { ...item, categoryId: target.categoryId } : item,
       );
@@ -834,20 +840,40 @@ export default function App() {
     const neighbor = backward
       ? orderedApps[index - 1]
       : orderedApps[index + 1];
-    if (!neighbor) return;
+    if (!neighbor || neighbor.boardPinned !== app.boardPinned) return;
     void commitOrder(moveById(apps, app.id, neighbor.id, forward));
   }
 
-  function listDragOver(event: DragEvent<HTMLUListElement>) {
-    event.preventDefault();
-    if (!dragId) return;
-    event.dataTransfer.dropEffect = "move";
+  function listDropHint(event: DragEvent<HTMLUListElement>) {
+    const dragged = apps.find((app) => app.id === dragId);
     const hint = dropTargetAt(
       event.currentTarget,
       event.clientX,
       event.clientY,
     );
-    const next = hint && hint.id !== dragId ? hint : null;
+    if (!dragged || !hint) return null;
+    const targetIndex = orderedApps.findIndex((app) => app.id === hint.id);
+    if (orderedApps[targetIndex]?.boardPinned === dragged.boardPinned) {
+      return hint.id === dragId ? null : hint;
+    }
+    // The slot before the first unpinned card is also the end of the pinned cards.
+    const previous = orderedApps[targetIndex - 1];
+    if (
+      !hint.after &&
+      dragged.boardPinned &&
+      previous?.boardPinned &&
+      previous.id !== dragId
+    ) {
+      return { id: previous.id, after: true };
+    }
+    return null;
+  }
+
+  function listDragOver(event: DragEvent<HTMLUListElement>) {
+    event.preventDefault();
+    if (!dragId) return;
+    const next = listDropHint(event);
+    event.dataTransfer.dropEffect = next ? "move" : "none";
     setDropHint((current) =>
       current?.id === next?.id && current?.after === next?.after
         ? current
@@ -858,11 +884,7 @@ export default function App() {
   function listDrop(event: DragEvent<HTMLUListElement>) {
     event.preventDefault();
     if (!dragId) return;
-    const hint = dropTargetAt(
-      event.currentTarget,
-      event.clientX,
-      event.clientY,
-    );
+    const hint = listDropHint(event);
     if (hint) {
       dropOn(hint.id, hint.after);
     } else {
@@ -1405,6 +1427,9 @@ export default function App() {
                         onDuplicate={() => openDuplicate(app)}
                         onDetails={() => setDetailAppId(app.id)}
                         onOpenUrl={() => openInBrowser(app)}
+                        onSetBoardPinned={(pinned) =>
+                          pinBoardApp(app.id, pinned)
+                        }
                         onSetPinned={(pinned) => void pinApp(app, pinned)}
                       />
                     </li>
@@ -1461,6 +1486,7 @@ function previewBase(partial: Partial<AppView> & Pick<AppView, "id" | "name" | "
     portEnv: "PORT",
     wakeOnRequest: true,
     idleStopMin: 15,
+    boardPinned: false,
     pinned: false,
     idleUntil: null,
     env: [],

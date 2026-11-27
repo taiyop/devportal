@@ -1,4 +1,4 @@
-import { Pin, Timer } from "lucide-react";
+import { Timer, TimerOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { canKeepAlive, remainingSeconds, useRemaining } from "@/lib/remaining";
 import { cn } from "@/lib/utils";
@@ -46,7 +46,7 @@ export function KeepAliveControls({
         disabled={disabled}
         onClick={() => onSetPinned(!app.pinned)}
       >
-        <Pin data-icon="inline-start" />
+        <TimerOff data-icon="inline-start" />
         Keep alive
       </Button>
     </div>

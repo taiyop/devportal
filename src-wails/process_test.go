@@ -384,6 +384,51 @@ func TestUpsertRejectsSamePortEnvNames(t *testing.T) {
 	}
 }
 
+func TestBoardPinPersistsAfterEditingApp(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "apps.yml")
+	p := &Portal{inner: Inner{configPath: path}}
+	input := AppInput{Name: "notes", Folder: dir, Command: "npm run dev"}
+	entry, err := p.Upsert(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := entry.ID
+
+	checkSavedPin := func(want bool) {
+		t.Helper()
+		file, err := loadConfig(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reloaded := &Portal{inner: Inner{file: file}}
+		view, err := reloaded.ViewByID(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if view.BoardPinned != want || view.Pinned || view.Status != AppStatusStopped {
+			t.Fatalf("boardPinned = %t, pinned = %t, status = %s; want %t, false, stopped", view.BoardPinned, view.Pinned, view.Status, want)
+		}
+	}
+	checkSavedPin(false)
+	if err := p.SetBoardPinned(id, true); err != nil {
+		t.Fatal(err)
+	}
+	checkSavedPin(true)
+
+	input.ID = &id
+	input.Name = "notes updated"
+	if _, err := p.Upsert(input); err != nil {
+		t.Fatal(err)
+	}
+	checkSavedPin(true)
+
+	if err := p.SetBoardPinned(id, false); err != nil {
+		t.Fatal(err)
+	}
+	checkSavedPin(false)
+}
+
 func TestReorderPersistsOrder(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "apps.yml")

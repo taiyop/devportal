@@ -81,6 +81,10 @@ export function RotateControlAPIToken(): $CancellablePromise<$models.ControlAPIS
     return $Call.ByID(1186475704);
 }
 
+export function SetBoardPinned(id: string, pinned: boolean): $CancellablePromise<void> {
+    return $Call.ByID(91716645, id, pinned);
+}
+
 export function SetControlAPIPort(port: number): $CancellablePromise<$models.ControlAPIStatus> {
     return $Call.ByID(215510069, port);
 }

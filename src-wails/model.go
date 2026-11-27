@@ -53,6 +53,7 @@ type AppEntry struct {
 	PortEnv       string        `json:"portEnv" yaml:"portEnv,omitempty"`
 	WakeOnRequest bool          `json:"wakeOnRequest" yaml:"wakeOnRequest"`
 	IdleStopMin   int           `json:"idleStopMin" yaml:"idleStopMin"`
+	BoardPinned   bool          `json:"boardPinned" yaml:"boardPinned,omitempty"`
 	Env           []EnvVar      `json:"env" yaml:"env"`
 	Backends      []BackendSpec `json:"backends,omitempty" yaml:"backends,omitempty"`
 }
@@ -71,6 +72,7 @@ type appEntryYAML struct {
 	BackendPortEnv string        `yaml:"backendPortEnv"`
 	WakeOnRequest  *bool         `yaml:"wakeOnRequest"`
 	IdleStopMin    int           `yaml:"idleStopMin"`
+	BoardPinned    bool          `yaml:"boardPinned"`
 	Env            []EnvVar      `yaml:"env"`
 	Backend        *BackendSpec  `yaml:"backend"`
 	Backends       []BackendSpec `yaml:"backends"`
@@ -99,6 +101,7 @@ func (e *AppEntry) UnmarshalYAML(unmarshal func(any) error) error {
 		e.WakeOnRequest = *raw.WakeOnRequest
 	}
 	e.IdleStopMin = clampIdleStopMin(raw.IdleStopMin)
+	e.BoardPinned = raw.BoardPinned
 	e.Env = raw.Env
 	if e.Env == nil {
 		e.Env = []EnvVar{}
@@ -200,6 +203,7 @@ type AppView struct {
 	PortEnv       string        `json:"portEnv"`
 	WakeOnRequest bool          `json:"wakeOnRequest"`
 	IdleStopMin   int           `json:"idleStopMin"`
+	BoardPinned   bool          `json:"boardPinned"`
 	Pinned        bool          `json:"pinned"`
 	IdleUntil     *int64        `json:"idleUntil"`
 	Env           []EnvVar      `json:"env"`
@@ -241,6 +245,7 @@ func viewFromEntry(entry AppEntry, status AppStatus, pid *uint32, livePort *uint
 		PortEnv:       entry.listenPortEnv(),
 		WakeOnRequest: entry.WakeOnRequest,
 		IdleStopMin:   entry.IdleStopMin,
+		BoardPinned:   entry.BoardPinned,
 		Env:           env,
 		Backends:      backends,
 		BackendPIDs:   []uint32{},

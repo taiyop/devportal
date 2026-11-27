@@ -44,6 +44,7 @@ export interface AppView {
     "portEnv": string;
     "wakeOnRequest": boolean;
     "idleStopMin": number;
+    "boardPinned": boolean;
     "pinned": boolean;
     "idleUntil": number | null;
     "env": EnvVar[] | null;

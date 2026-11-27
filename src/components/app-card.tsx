@@ -5,11 +5,12 @@ import {
   GripVertical,
   Info,
   Pencil,
+  Pin,
   Play,
   Square,
   Tag,
 } from "lucide-react";
-import type { DragEvent, KeyboardEvent } from "react";
+import { useState, type DragEvent, type KeyboardEvent } from "react";
 import { toast } from "sonner";
 import { KeepAliveControls } from "@/components/keep-alive-controls";
 import { Badge } from "@/components/ui/badge";
@@ -45,6 +46,7 @@ export function AppCard({
   onDuplicate,
   onDetails,
   onOpenUrl,
+  onSetBoardPinned,
   onSetPinned,
 }: {
   app: AppView;
@@ -58,9 +60,20 @@ export function AppCard({
   onDuplicate: () => void;
   onDetails: () => void;
   onOpenUrl: () => void;
+  onSetBoardPinned: (pinned: boolean) => Promise<void>;
   onSetPinned: (pinned: boolean) => void;
 }) {
   const off = isOff(app.status);
+  const [pinning, setPinning] = useState(false);
+
+  async function toggleBoardPin() {
+    setPinning(true);
+    try {
+      await onSetBoardPinned(!app.boardPinned);
+    } finally {
+      setPinning(false);
+    }
+  }
 
   async function copyUrl() {
     if (!app.url) return;
@@ -132,6 +145,30 @@ export function AppCard({
             ) : null}
           </div>
         </div>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className={cn(
+                  "shrink-0",
+                  app.boardPinned ? "text-primary" : "text-muted-foreground",
+                )}
+                aria-label={`${app.name} のピン留め`}
+                aria-pressed={app.boardPinned}
+                disabled={pinning}
+                onClick={toggleBoardPin}
+              />
+            }
+          >
+            <Pin className={app.boardPinned ? "fill-current" : undefined} />
+          </TooltipTrigger>
+          <TooltipContent>
+            {app.boardPinned ? "ピン留めを解除" : "一覧の先頭にピン留め"}
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       {app.description ? (

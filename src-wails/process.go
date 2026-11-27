@@ -355,6 +355,7 @@ func upsert(inner *Inner, input AppInput) (AppEntry, error) {
 	replaced := false
 	for i := range inner.file.Apps {
 		if inner.file.Apps[i].ID == entry.ID {
+			entry.BoardPinned = inner.file.Apps[i].BoardPinned
 			inner.file.Apps[i] = entry
 			replaced = true
 			break
@@ -367,6 +368,31 @@ func upsert(inner *Inner, input AppInput) (AppEntry, error) {
 		return AppEntry{}, err
 	}
 	return entry, nil
+}
+
+func (p *Portal) SetBoardPinned(id string, pinned bool) error {
+	inner := p.lock()
+	for i := range inner.file.Apps {
+		app := &inner.file.Apps[i]
+		if app.ID != id {
+			continue
+		}
+		if app.BoardPinned == pinned {
+			p.unlock()
+			return nil
+		}
+		app.BoardPinned = pinned
+		if err := saveConfig(inner.configPath, inner.file); err != nil {
+			app.BoardPinned = !pinned
+			p.unlock()
+			return err
+		}
+		p.unlock()
+		p.emitView(id)
+		return nil
+	}
+	p.unlock()
+	return errString("アプリが見つかりません")
 }
 
 func (p *Portal) Delete(id string) error {
