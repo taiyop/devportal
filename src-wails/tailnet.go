@@ -20,10 +20,14 @@ import (
 
 	"tailscale.com/client/local"
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
 )
 
-const tailnetFirstAppPort = 20000
+const (
+	tailnetFirstAppPort = 20000
+	defaultTailnetTag   = "tag:devportal"
+)
 
 type TailnetConfig struct {
 	TailnetSettings `yaml:",inline"`
@@ -32,6 +36,7 @@ type TailnetConfig struct {
 
 type TailnetSettings struct {
 	Enabled   bool                          `json:"enabled" yaml:"enabled,omitempty"`
+	Tag       string                        `json:"tag" yaml:"tag,omitempty"`
 	DeviceIDs []string                      `json:"deviceIds" yaml:"deviceIds,omitempty"`
 	Apps      map[string]TailnetAppSettings `json:"apps" yaml:"apps,omitempty"`
 }
@@ -55,21 +60,53 @@ type TailnetStatus struct {
 	PortalURL string          `json:"portalUrl"`
 	LoginURL  string          `json:"loginUrl"`
 	Error     string          `json:"error"`
+	Tags      []string        `json:"tags"`
 	Devices   []TailnetDevice `json:"devices"`
+}
+
+func normalizeTailnetTag(raw string) (string, error) {
+	tag := strings.TrimSpace(raw)
+	if tag == "" {
+		return defaultTailnetTag, nil
+	}
+	if len(tag) >= 4 && strings.EqualFold(tag[:4], "tag:") {
+		tag = "tag:" + tag[4:]
+	} else {
+		tag = "tag:" + tag
+	}
+	if err := tailcfg.CheckTag(tag); err != nil {
+		return "", errString("Tailscale タグは tag:devportal のように英字で始まる英数字とハイフンで入力してください")
+	}
+	return tag, nil
+}
+
+func configuredTailnetTag(raw string) string {
+	tag, err := normalizeTailnetTag(raw)
+	if err != nil {
+		return defaultTailnetTag
+	}
+	return tag
 }
 
 func (p *Portal) tailnetSettings() TailnetSettings {
 	inner := p.lock()
 	defer p.unlock()
-	return inner.file.Tailnet.TailnetSettings
+	settings := inner.file.Tailnet.TailnetSettings
+	settings.Tag = configuredTailnetTag(settings.Tag)
+	return settings
 }
 
 func (p *Portal) setTailnetSettings(input TailnetSettings) (TailnetSettings, error) {
+	tag, err := normalizeTailnetTag(input.Tag)
+	if err != nil {
+		return TailnetSettings{}, err
+	}
 	inner := p.lock()
 	file := inner.file
 	current := file.Tailnet
 	next := TailnetConfig{TailnetSettings: TailnetSettings{
 		Enabled:   input.Enabled,
+		Tag:       tag,
 		DeviceIDs: normalizeDeviceIDs(input.DeviceIDs),
 		Apps:      make(map[string]TailnetAppSettings),
 	}, NextPort: max(current.NextPort, tailnetFirstAppPort)}
@@ -128,6 +165,7 @@ func (inner *Inner) invalidateTailnetPolicy() {
 }
 
 type tailnetSession struct {
+	tag    string
 	cancel context.CancelFunc
 	done   chan struct{}
 	reload chan struct{}
@@ -153,6 +191,7 @@ func (p *Portal) syncTailnet() {
 
 	inner := p.lock()
 	enabled := inner.file.Tailnet.Enabled
+	tag := configuredTailnetTag(inner.file.Tailnet.Tag)
 	dir := filepath.Join(filepath.Dir(inner.configPath), "tailscale")
 	p.unlock()
 	if !enabled || p.tailnetClosed {
@@ -160,22 +199,26 @@ func (p *Portal) syncTailnet() {
 		return
 	}
 	if p.tailnet != nil {
-		select {
-		case p.tailnet.reload <- struct{}{}:
-		default:
+		if p.tailnet.tag == tag {
+			select {
+			case p.tailnet.reload <- struct{}{}:
+			default:
+			}
+			return
 		}
-		return
+		p.closeTailnetSession()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	session := &tailnetSession{
+		tag:    tag,
 		cancel: cancel,
 		done:   make(chan struct{}),
 		reload: make(chan struct{}, 1),
 		status: TailnetStatus{State: "Starting"},
 	}
 	p.tailnet = session
-	go p.runTailnet(ctx, session, dir)
+	go p.runTailnet(ctx, session, dir, tag)
 }
 
 // The caller holds tailnetMu. The session worker only takes its own mutex and p.mu.
@@ -216,15 +259,16 @@ func (s *tailnetSession) setStatus(status TailnetStatus) {
 	s.mu.Unlock()
 }
 
-func (p *Portal) runTailnet(ctx context.Context, session *tailnetSession, dir string) {
+func (p *Portal) runTailnet(ctx context.Context, session *tailnetSession, dir, tag string) {
 	defer close(session.done)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		session.setStatus(TailnetStatus{State: "Error", Error: err.Error()})
 		return
 	}
 	node := &tsnet.Server{
-		Dir:      dir,
-		Hostname: "devportal",
+		Dir:           dir,
+		Hostname:      "devportal",
+		AdvertiseTags: []string{tag},
 		// The Local API reports the login URL to the settings window.
 		UserLogf: func(string, ...any) {},
 		Logf:     func(string, ...any) {},
@@ -243,8 +287,19 @@ func (p *Portal) runTailnet(ctx context.Context, session *tailnetSession, dir st
 	var currentHost string
 	var certError error
 	var certRetry time.Time
+	var reauthRetry time.Time
 	for ctx.Err() == nil {
-		status, host, suffix := readTailnetStatus(ctx, client)
+		status, host, suffix, needsTagReauth := readTailnetStatus(ctx, client, tag)
+		if needsTagReauth {
+			if status.LoginURL == "" && (reauthRetry.IsZero() || time.Now().After(reauthRetry)) {
+				reauthRetry = time.Now().Add(30 * time.Second)
+				if err := requestTailnetLogin(ctx, client); err != nil {
+					status.Error = fmt.Sprintf("%s（再ログインの開始に失敗: %v）", status.Error, err)
+				}
+			}
+		} else {
+			reauthRetry = time.Time{}
+		}
 		if host != currentHost {
 			closeTailnetServers(servers)
 			currentHost = host
@@ -274,6 +329,12 @@ func (p *Portal) runTailnet(ctx context.Context, session *tailnetSession, dir st
 	}
 }
 
+func requestTailnetLogin(ctx context.Context, client *local.Client) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return client.StartLoginInteractive(ctx)
+}
+
 func prepareTailnetCertificate(ctx context.Context, client *local.Client, host string) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
@@ -281,25 +342,57 @@ func prepareTailnetCertificate(ctx context.Context, client *local.Client, host s
 	return err
 }
 
-func readTailnetStatus(ctx context.Context, client *local.Client) (TailnetStatus, string, string) {
+func readTailnetStatus(ctx context.Context, client *local.Client, expectedTag string) (TailnetStatus, string, string, bool) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	st, err := client.Status(ctx)
 	if err != nil {
-		return TailnetStatus{State: "Error", Error: err.Error()}, "", ""
+		return TailnetStatus{State: "Error", Error: err.Error()}, "", "", false
 	}
+	return tailnetStatusFromIPN(st, expectedTag)
+}
+
+func tailnetStatusFromIPN(st *ipnstate.Status, expectedTag string) (TailnetStatus, string, string, bool) {
 	status := TailnetStatus{State: st.BackendState, LoginURL: st.AuthURL}
+	if st.Self != nil {
+		status.Tags = tailnetPeerTags(st.Self)
+	}
 	if status.State != "Running" || st.CurrentTailnet == nil || st.Self == nil {
-		return status, "", ""
+		return status, "", "", false
 	}
 	suffix := strings.Trim(strings.ToLower(st.CurrentTailnet.MagicDNSSuffix), ".")
 	status.Devices = tailnetDevices(st, suffix)
+	if !tailnetHasTag(status.Tags, expectedTag) {
+		status.Error = fmt.Sprintf("ノードにタグ %s が適用されていません。Tailscale の ACL（tagOwners）で %s を定義し、再ログインしてタグ付きマシンとして登録してください", expectedTag, expectedTag)
+		return status, "", "", true
+	}
+	status.LoginURL = ""
 	host := strings.TrimSuffix(strings.ToLower(st.Self.DNSName), ".")
 	if !st.CurrentTailnet.MagicDNSEnabled || !slices.Contains(st.CertDomains, host) || !tailnetMemberName(host, suffix) {
 		status.Error = "Tailscale 管理コンソールで MagicDNS と HTTPS 証明書を有効にしてください"
-		return status, "", ""
+		return status, "", "", false
 	}
-	return status, host, suffix
+	return status, host, suffix, false
+}
+
+func tailnetPeerTags(peer *ipnstate.PeerStatus) []string {
+	if peer == nil || peer.Tags == nil || peer.Tags.Len() == 0 {
+		return nil
+	}
+	tags := make([]string, peer.Tags.Len())
+	for i := range tags {
+		tags[i] = peer.Tags.At(i)
+	}
+	return tags
+}
+
+func tailnetHasTag(tags []string, expected string) bool {
+	for _, tag := range tags {
+		if strings.EqualFold(tag, expected) {
+			return true
+		}
+	}
+	return false
 }
 
 func tailnetDevices(st *ipnstate.Status, suffix string) []TailnetDevice {

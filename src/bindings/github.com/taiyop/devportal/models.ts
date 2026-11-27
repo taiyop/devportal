@@ -140,6 +140,7 @@ export interface TailnetDevice {
 
 export interface TailnetSettings {
     "enabled": boolean;
+    "tag": string;
     "deviceIds": string[] | null;
     "apps": { [_ in string]?: TailnetAppSettings } | null;
 }
@@ -149,6 +150,7 @@ export interface TailnetStatus {
     "portalUrl": string;
     "loginUrl": string;
     "error": string;
+    "tags": string[] | null;
     "devices": TailnetDevice[] | null;
 }
 

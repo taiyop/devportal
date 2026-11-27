@@ -14,6 +14,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/types/key"
+	"tailscale.com/types/views"
 )
 
 const tailnetTestHost = "devportal.test-tailnet.ts.net"
@@ -269,4 +273,125 @@ func TestTailnetRevocationCancelsAuthorizedRequest(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("request continued after access was revoked")
 	}
+}
+
+func TestNormalizeTailnetTag(t *testing.T) {
+	for _, tt := range []struct {
+		in   string
+		want string
+	}{
+		{"", defaultTailnetTag},
+		{"   ", defaultTailnetTag},
+		{"devportal-work", "tag:devportal-work"},
+		{"tag:devportal", "tag:devportal"},
+		{"TAG:devportal-2", "tag:devportal-2"},
+		{"  tag:MacStudio-1  ", "tag:MacStudio-1"},
+	} {
+		got, err := normalizeTailnetTag(tt.in)
+		if err != nil {
+			t.Fatalf("normalizeTailnetTag(%q) error: %v", tt.in, err)
+		}
+		if got != tt.want {
+			t.Fatalf("normalizeTailnetTag(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+
+	for _, invalid := range []string{"tag:", "123", "tag:123", "tag:foo_bar", "tag:a b", "tag:日本語"} {
+		if _, err := normalizeTailnetTag(invalid); err == nil {
+			t.Fatalf("normalizeTailnetTag(%q) succeeded, want error", invalid)
+		}
+	}
+}
+
+func TestTailnetSaveNormalizesAndPersistsTag(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "apps.yml")
+	p := &Portal{inner: Inner{configPath: path, file: tailnetTestConfig()}}
+	p.inner.file.Tailnet.Enabled = false
+
+	if got := p.tailnetSettings().Tag; got != defaultTailnetTag {
+		t.Fatalf("default tag = %q, want %q", got, defaultTailnetTag)
+	}
+
+	if _, err := p.setTailnetSettings(TailnetSettings{Tag: "tag:invalid_tag"}); err == nil {
+		t.Fatal("expected error for invalid tag")
+	}
+
+	updated, err := p.setTailnetSettings(TailnetSettings{Tag: "devportal-mini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Tag != "tag:devportal-mini" {
+		t.Fatalf("updated tag = %q, want %q", updated.Tag, "tag:devportal-mini")
+	}
+
+	reloaded, err := loadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Tailnet.Tag != "tag:devportal-mini" {
+		t.Fatalf("reloaded tag = %q, want %q", reloaded.Tailnet.Tag, "tag:devportal-mini")
+	}
+}
+
+func TestTailnetStatusFromIPNRequiresConfiguredTag(t *testing.T) {
+	peerKey := key.NewNode().Public()
+	baseStatus := func(tags []string, authURL string) *ipnstate.Status {
+		var tagView *views.Slice[string]
+		if len(tags) > 0 {
+			s := views.SliceOf(tags)
+			tagView = &s
+		}
+		return &ipnstate.Status{
+			BackendState: "Running",
+			AuthURL:      authURL,
+			CertDomains:  []string{tailnetTestHost},
+			CurrentTailnet: &ipnstate.TailnetStatus{
+				MagicDNSSuffix:  "test-tailnet.ts.net",
+				MagicDNSEnabled: true,
+			},
+			Self: &ipnstate.PeerStatus{
+				DNSName: tailnetTestHost + ".",
+				Tags:    tagView,
+			},
+			Peer: map[key.NodePublic]*ipnstate.PeerStatus{
+				peerKey: {
+					ID:           "phone",
+					HostName:     "phone",
+					DNSName:      "phone.test-tailnet.ts.net.",
+					InNetworkMap: true,
+					Online:       true,
+				},
+			},
+		}
+	}
+
+	t.Run("untagged node requires reauth", func(t *testing.T) {
+		st, host, suffix, needsReauth := tailnetStatusFromIPN(baseStatus(nil, "https://login.tailscale.com/a/1"), "tag:devportal")
+		if host != "" || suffix != "" || !needsReauth {
+			t.Fatalf("got host=%q suffix=%q needsReauth=%v", host, suffix, needsReauth)
+		}
+		if st.LoginURL != "https://login.tailscale.com/a/1" || st.Error == "" || len(st.Devices) != 1 {
+			t.Fatalf("unexpected status %#v", st)
+		}
+	})
+
+	t.Run("mismatched tag requires reauth", func(t *testing.T) {
+		st, host, _, needsReauth := tailnetStatusFromIPN(baseStatus([]string{"tag:other"}, ""), "tag:devportal")
+		if host != "" || !needsReauth {
+			t.Fatalf("got host=%q needsReauth=%v", host, needsReauth)
+		}
+		if !slices.Equal(st.Tags, []string{"tag:other"}) || st.Error == "" {
+			t.Fatalf("unexpected status %#v", st)
+		}
+	})
+
+	t.Run("matching tag clears stale auth url and serves", func(t *testing.T) {
+		st, host, suffix, needsReauth := tailnetStatusFromIPN(baseStatus([]string{"tag:devportal", "tag:extra"}, "https://login.tailscale.com/stale"), "tag:DevPortal")
+		if host != tailnetTestHost || suffix != "test-tailnet.ts.net" || needsReauth {
+			t.Fatalf("got host=%q suffix=%q needsReauth=%v", host, suffix, needsReauth)
+		}
+		if st.LoginURL != "" || st.Error != "" || !slices.Equal(st.Tags, []string{"tag:devportal", "tag:extra"}) {
+			t.Fatalf("unexpected status %#v", st)
+		}
+	})
 }

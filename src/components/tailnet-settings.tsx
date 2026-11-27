@@ -10,6 +10,7 @@ import type {
 } from "@/bindings/github.com/taiyop/devportal";
 import { Button } from "@/components/ui/button";
 import { FieldGroup } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { copyText } from "@/lib/clipboard";
 import { asError } from "@/lib/error";
@@ -161,6 +162,11 @@ export function TailnetSettingsPanel({
               {describeStatus(status)}
             </p>
           ) : null}
+          {status?.tags?.length ? (
+            <p className="font-mono text-[11px] text-muted-foreground">
+              適用中のタグ: {status.tags.join(", ")}
+            </p>
+          ) : null}
           {status?.error ? (
             <p className="break-words text-[12px] text-destructive">
               {status.error}
@@ -200,6 +206,30 @@ export function TailnetSettingsPanel({
 
         {draft?.enabled ? (
           <>
+            <div className="space-y-1.5 border-t border-border px-4 py-3">
+              <label
+                htmlFor="tailnet-tag"
+                className="block text-[13px] font-medium"
+              >
+                マシンのタグ
+              </label>
+              <Input
+                id="tailnet-tag"
+                type="text"
+                placeholder="tag:devportal"
+                className="font-mono"
+                value={draft.tag}
+                disabled={saving}
+                autoComplete="off"
+                onChange={(event) =>
+                  change({ ...draft, tag: event.target.value })
+                }
+              />
+              <p className="text-[12px] text-muted-foreground">
+                未入力時は <code className="font-mono">tag:devportal</code> です。事前に Tailscale 管理コンソールの ACL（<code className="font-mono">tagOwners</code>）でこのタグを定義してください。変更後は再ログインが必要です。
+              </p>
+            </div>
+
             <fieldset
               disabled={saving}
               className="space-y-1 border-t border-border px-4 py-3"
